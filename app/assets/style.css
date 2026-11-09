@@ -1,0 +1,22 @@
+/* Estilos del Observatorio de Inteligencia Turística - Grupo 5 */
+
+.block-container {
+    padding-top: 2rem;
+}
+
+h1 {
+    color: #0E7C86;
+}
+
+h2, h3 {
+    color: #0E7C86;
+}
+
+.stMetric label {
+    color: #6C757D;
+    font-weight: 600;
+}
+
+.stMetric value {
+    color: #0E7C86;
+}
