@@ -2,15 +2,8 @@
 
 import streamlit as st
 
-# Paleta documentada del observatorio (tonos Caribe / Río Dulce)
-PALETA = {
-    "primario": "#0E7C86",    # turquesa Caribe
-    "secundario": "#F4A259",  # arena cálida
-    "acento": "#5B8E7D",      # verde río
-    "alerta": "#C0392B",      # rojo coral
-    "neutro": "#6C757D",      # gris
-    "estimacion": "#9B59B6",  # morado para estimaciones
-}
+# Paleta validada: ver app/components/theme.py (re-exportada por compatibilidad)
+from app.components.theme import PALETA  # noqa: F401
 
 
 def kpi(label: str, value, delta=None, help: str | None = None) -> None:

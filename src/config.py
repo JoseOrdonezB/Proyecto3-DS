@@ -42,6 +42,27 @@ NON_VISITOR_TYPES = ["Viajero", "Cruceristas"]
 # Cruzamientos de cruceros (fuente externa desde 2023)
 CRUISE_BORDER = "Cruceros"
 
+# Mapeo 1:1 encuesta (frontera_nombre) -> migración (Frontera). Ver PLAN §2.4.
+SURVEY_BORDER_MAP = {
+    "El Florido": "12 El Florido",
+    "La Ermita (Nueva Anguiatú)": "10 La Ermita (Nueva Anguiatú)",
+    "San Cristóbal": "09 San Cristóbal",
+    "Melchor de Mencos": "20 Melchor de Mencos",
+    "El Carmen": "15 El Carmen",
+    "La Aurora": "01 La Aurora",
+    "Valle Nuevo": "07 Valle Nuevo",
+    "La Mesilla": "16 La Mesilla",
+    "Pedro de Alvarado": "08 Pedro de Alvarado",
+    "Agua Caliente": "11 Agua Caliente",
+    "Tecún Umán": "14 Tecún Umán",
+}
+
+# Las 9 fronteras "alimentadoras" de Izabal (PLAN §2.4 / §3.2, modelo M3).
+# El plan no las enumera: completar con las 9 de SURVEY_BORDER_MAP que tienen
+# serie de visitantes continua 2009-2026. Mientras sea None, el pronóstico usa
+# las 11 fronteras mapeadas como aproximación (el factor r_m absorbe la escala).
+ISABAL_FEEDER_BORDERS: list[str] | None = None
+
 DESTINATION_DEPT = "Izabal"
 DESTINATION_REGION = "Izabal/Caribe"  # etiqueta usada en la BD complementaria
 

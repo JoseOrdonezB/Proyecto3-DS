@@ -10,10 +10,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import DATA_PROCESSED
+from src.config import (
+    DATA_PROCESSED,
+    ISABAL_FEEDER_BORDERS,
+    SURVEY_BORDER_MAP,
+    VISITOR_TYPES,
+)
 from src.etl.clean import clean_migration, clean_occupancy, clean_survey
 from src.etl.load import load_migration, load_occupancy, load_survey
 from src.etl import transform as t
+from src.models import forecast as fc
 
 
 def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
@@ -57,6 +63,20 @@ def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
         # Calidad de datos (limitaciones documentadas)
         "data_quality.parquet": t.data_quality(mig, sur),
     }
+
+    # 3b. Pronóstico (Módulo 2). M3 usa la migración de las fronteras alimentadoras
+    # (ISABAL_FEEDER_BORDERS; si es None, las 11 fronteras mapeadas de la encuesta).
+    feeders = ISABAL_FEEDER_BORDERS or sorted(SURVEY_BORDER_MAP.values())
+    mig_feeders = fc.serie_mensual_migracion(
+        outputs["migration_monthly.parquet"], feeders, VISITOR_TYPES
+    )
+    outputs.update(
+        fc.generar_salidas(
+            outputs["occupancy_monthly.parquet"],
+            outputs["survey_izabal_daily.parquet"],
+            migracion=mig_feeders,
+        )
+    )
 
     # 4. Guardado (parquet + copia csv para inspección)
     if save:
