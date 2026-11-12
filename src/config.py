@@ -58,10 +58,23 @@ SURVEY_BORDER_MAP = {
 }
 
 # Las 9 fronteras "alimentadoras" de Izabal (PLAN §2.4 / §3.2, modelo M3).
-# El plan no las enumera: completar con las 9 de SURVEY_BORDER_MAP que tienen
-# serie de visitantes continua 2009-2026. Mientras sea None, el pronóstico usa
-# las 11 fronteras mapeadas como aproximación (el factor r_m absorbe la escala).
-ISABAL_FEEDER_BORDERS: list[str] | None = None
+# Son las fronteras que efectivamente registran visitantes con destino
+# Izabal/Caribe en la BD complementaria (verificado sobre el subconjunto).
+# Las 2 restantes del mapeo (Agua Caliente, Tecún Umán) aparecen en la encuesta
+# general pero NO en el subconjunto Izabal/Caribe: no alimentan el destino.
+# Todas tienen serie de visitantes continua 2009-2026 (a diferencia de las
+# fronteras marítimas del destino, que se apagan en 2016).
+ISABAL_FEEDER_BORDERS = [
+    "12 El Florido",
+    "10 La Ermita (Nueva Anguiatú)",
+    "09 San Cristóbal",
+    "20 Melchor de Mencos",
+    "15 El Carmen",
+    "01 La Aurora",
+    "07 Valle Nuevo",
+    "16 La Mesilla",
+    "08 Pedro de Alvarado",
+]
 
 # Ventana coincidente del Módulo 3 (afluencia vs ocupación). Ver PLAN §8 (C).
 VENTANA_COINCIDENTE = ("2025-09-01", "2025-12-01")

@@ -13,13 +13,13 @@ import pandas as pd
 from src.config import (
     DATA_PROCESSED,
     ISABAL_FEEDER_BORDERS,
-    SURVEY_BORDER_MAP,
     VISITOR_TYPES,
 )
 from src.etl.clean import clean_migration, clean_occupancy, clean_survey
 from src.etl.load import load_migration, load_occupancy, load_survey
 from src.etl import transform as t
 from src.models import forecast as fc
+from src.analysis import embudo as e
 
 
 def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
@@ -68,6 +68,10 @@ def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
         "survey_holiday_lift.parquet": t.survey_holiday_lift(sur),
         "survey_border_migration.parquet": t.survey_border_migration(sur, mig),
         "survey_transfer_rate.parquet": t.survey_transfer_rate(sur, mig),
+        "survey_border_node_flow.parquet": t.survey_border_node_flow(sur),
+        "survey_node_transport.parquet": t.survey_node_transport(sur),
+        "maritime_flow_profile.parquet": t.maritime_flow_profile(mig),
+        "survey_itinerarios.parquet": e.perfil_itinerarios(sur),
         "corridor_funnel_matrix.parquet": t.corridor_funnel_matrix(mig),
         "migration_seasonal_index.parquet": t.migration_seasonal_index(mig),
         "occupancy_vs_affluence.parquet": t.occupancy_vs_affluence(occ, sur, mig),
@@ -78,9 +82,11 @@ def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
         "data_quality.parquet": t.data_quality(mig, sur),
     }
 
-    # 3b. Pronóstico (Módulo 2). M3 usa la migración de las fronteras alimentadoras
-    # (ISABAL_FEEDER_BORDERS; si es None, las 11 fronteras mapeadas de la encuesta).
-    feeders = ISABAL_FEEDER_BORDERS or sorted(SURVEY_BORDER_MAP.values())
+    # 3b. Pronóstico (Módulo 2). M3 usa la migración de las 9 fronteras
+    # alimentadoras de Izabal (ISABAL_FEEDER_BORDERS): son las que registran
+    # visitantes con destino Izabal en la encuesta y tienen serie continua
+    # 2009-2026, a diferencia de las marítimas (que se apagan en 2016).
+    feeders = ISABAL_FEEDER_BORDERS
     mig_feeders = fc.serie_mensual_migracion(
         outputs["migration_monthly.parquet"], feeders, VISITOR_TYPES
     )

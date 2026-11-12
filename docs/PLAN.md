@@ -26,7 +26,7 @@ son independientes entre sí y pueden developerse en paralelo.
 > `.gitignore`. Ningún agente debe subir microdatos, cambiar `.gitignore` para
 > incluirlos, ni publicar el repositorio.
 
-> 📐 **Reglas metodológicas estrictas** (de la guía oficial, applies a todos):
+> 📐 **Reglas metodológicas estrictas** (de la guía oficial, aplican a todos):
 > 1. La ausencia de dato **no** es cero.
 > 2. Prohibido promediar la permanencia → usar `suma(días-persona) / suma(visitantes)`.
 > 3. No sumar la base diaria para obtener el mes.
@@ -117,8 +117,20 @@ Quitando el prefijo numérico `"NN "` de la columna `Frontera` de la base oficia
 muestral) con *cuántos entraron* (migración, absoluto) → **tasa de transferencia
 por frontera**. Es el corazón del reto.
 
-Las 9 fronteras que alimentan Izabal **tienen serie de visitantes continua
-2009–2026** → son el ancla temporal del corredor.
+**Las 9 fronteras que alimentan el destino** (las que registran visitantes con
+destino Izabal/Caribe en la encuesta) son:
+
+`12 El Florido` · `10 La Ermita (Nueva Anguiatú)` · `09 San Cristóbal` ·
+`20 Melchor de Mencos` · `15 El Carmen` · `01 La Aurora` · `07 Valle Nuevo` ·
+`16 La Mesilla` · `08 Pedro de Alvarado`
+
+Las 2 restantes del mapeo (`11 Agua Caliente`, `14 Tecún Umán`) aparecen en la
+encuesta general pero **no** en el subconjunto Izabal/Caribe: no alimentan el
+destino y por eso quedan fuera de `ISABAL_FEEDER_BORDERS` (constante en
+`src/config.py`).
+
+Las 9 tienen **serie de visitantes continua 2009-2026** → son el ancla temporal
+del corredor y la única base donde el embudo es medible (§4.1).
 
 ### 2.5 La ocupación de Izabal está completa (36 meses) → el pronóstico es viable
 
@@ -169,20 +181,30 @@ observadas (2023–2024).
 - Se reportan las métricas agregadas **y el nº de folds válidos** (regla de ≥25 meses).
 - Se reporta el **modelo ganador** y su identidad de forma visible en el dashboard.
 
-### 3.4 Resultados ya medidos (ocupación Izabal, backtest 2025, n=11)
+### 3.4 Resultados medidos (ocupación Izabal, backtest 2025)
 
 | Modelo | MAPE | RMSE | MAE |
 |---|---|---|---|
-| **Logit-ETS** | **10.75%** | **0.1053** | 0.076 |
-| Logit-ETS damped | 11.26% | 0.1019 | — |
-| Naive estacional (media 2 años) | 13.84% | — | — |
+| **Logit-ETS** | **10.75%** | **0.1053** | 0.080 |
+| Logit-ETS damped | 11.26% | 0.1019 | 0.085 |
+| Perfil estacional + factor de reparto | 11.27% | 0.1145 | 0.087 |
+| Naive estacional (media 2 años) | 13.84% | 0.1317 | 0.109 |
 
-**Pronóstico 2026 (logit-ETS damped, entrenado 2023-2025) — rango 0.748–0.970, todos válidos:**
+> ⚠️ **Corrección 2026-11-11.** Esta tabla inicialmente predecía el pronóstico
+> 2026 con `logit_ets_damped`. La implementación real **elige el modelo por
+> backtest**, y ese procedimiento elige `logit_ets` (MAPE 10.75% frente a
+> 11.26%): los números de abajo son los de la implementación, no al revés.
+>
+> | Mes | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12 |
+> |---|---|---|---|---|---|---|---|---|---|---|---|---|
+> | **2026 (estimado)** | 0.939 | 0.940 | 0.915 | 0.984 | 0.968 | 0.932 | 0.939 | 0.955 | 0.951 | 0.890 | 0.903 | 0.961 |
+> | 2025 (observado) | 0.780 | 0.740 | 0.640 | 0.820 | 0.830 | 0.730 | 0.740 | 0.810 | 0.820 | 0.560 | 0.750 | 0.920 |
+>
+> Rango 0.890–0.984: dentro de [0,1] por construcción (transformada logit).
 
-| Mes | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **2026 (estimado)** | 0.928 | 0.917 | 0.867 | 0.970 | 0.936 | 0.861 | 0.866 | 0.895 | 0.880 | 0.748 | 0.767 | 0.895 |
-| 2025 (observado) | 0.780 | 0.740 | 0.640 | 0.820 | 0.830 | 0.730 | 0.740 | 0.810 | 0.820 | 0.560 | 0.750 | 0.920 |
+Para la encuesta (muestral, muy ruidosa) el ganador es `logit_ets_damped` con
+**MAPE 56.4%** (27 folds válidos) — el error alto es real y está explicado por el
+tamaño de muestra (6–117 registros por mes), no por un fallo del modelo.
 
 ### 3.5 Los tres objetivos de imputación / pronóstico
 
@@ -200,16 +222,43 @@ Toda cifra estimada: **violeta + línea discontinua + marcador vacío + etiqueta
 
 ### 4.1 El embudo cuantificado (métrica central del reto)
 
-Por cada frontera de entrada `b`:
+> ⚠️ **Corrección 2026-11-11 — la fórmula de este apartado cambió.**
+> La versión original de este plan proponía:
+>
+> ```
+> Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b)
+> ```
+>
+> **Esa fórmula es inválida** y no debe implementarse: divide una **muestra**
+> (encuesta, sin factor de expansión) entre un **conteo absoluto** (migración).
+> El resultado no es una tasa sino un número cuyo valor depende del factor de
+> muestreo de cada frontera y de cada año, y además no está acotado a [0,1].
+> Usarlo violaría la regla 6.
+>
+> La fórmula correcta, ya implementada en `survey_transfer_rate`
+> (`src/etl/transform.py`), es una **proporción dentro de la misma fuente**:
+>
+> ```
+> Tasa de Transferencia(b) = VisitantesEncuesta_con_destino_Izabal(b)
+>                            / VisitantesEncuesta_totales(b)        ∈ [0, 1]
+> ```
+>
+> Es decir: **de las personas que entran por la frontera `b` y que la encuesta
+> registra, ¿qué proporción declara destino Izabal/Caribe?** Lleva un
+> **intervalo de Wilson al 95%** que acota la incertidumbre por tamaño de
+> muestra, y el peso de cada frontera en el destino (`peso_en_izabal`).
+>
+> La migración del mismo período (visitantes y tránsito, en los meses en que la
+> encuesta operó en esa frontera) se **adjunta como contexto absoluto** en la
+> misma tabla, sin dividirse por ella. Ambas magnitudes se leen una al lado de
+> la otra, nunca combinadas en un cociente.
 
-```
-Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b)
-```
-
-- **Numerador:** muestral (encuesta) → se reporta como **% de la muestra**.
-- **Denominador:** absoluto (migración) → se reporta con su caveat.
-- Se calculan dos versiones: (a) con `Turista + Excursionista` y (b) con `Viajero`
-  (tránsito), que son poblacionalmente distintos.
+**El hallazgo que encuadra todo el módulo:** el embudo **marítimo no es
+medible**. En las tres fronteras marítimas de Izabal, los visitantes
+(2009-01 → 2016-12) y el tránsito (2023-01 → 2026-06) **nunca coinciden en un
+mismo mes**: 0 meses de solape. El embudo medible es el **terrestre**, sobre las
+9 fronteras alimentadoras (176–204 meses de solape cada una). La métrica
+`meses_solape` de `maritime_flow_profile` lo documenta.
 
 ### 4.2 Ejes de análisis del reto
 
@@ -218,15 +267,38 @@ Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b
 | **Flujo turístico vs. comercial** | `Livingston` (turístico) vs `Puerto Barrios` (transferencia/carga) | Perfil `Viajero` vs `Turista` por frontera → evidencia de que Livingston es destino turístico y Puerto Barrios nodo de transferencia |
 | **Conectividad fluvial** | `05 Puerto Barrios` → `04 Santo Tomás` → `Río Dulce` → `06 Livingston` | Grafo de conectividad + cadena de valor del corredor |
 | **Estacionalidad del corredor** | migración 2009-2026 | Identificación de cuellos de botella por mes (el perfil de tránsito es plano todo el año → cuello **estructural**, no estacional) |
-| **Tasa de transferencia por frontera** | encuesta + migración (mapeo 1:1) | Ranking de fronteras que más convierten a destino Izabal |
+| **Tasa de transferencia por frontera** | encuesta (proporción + IC Wilson) | La migración se adjunta como contexto absoluto, sin dividirse por ella | Ranking de fronteras que más convierten a destino Izabal |
 | **Subdestinos sin sumar** | encuesta `destino` normalizado | Peso relativo de Río Dulce / Livingston / Puerto Barrios / Quiriguá (nunca sumar) |
+| **Itinerarios multi-parada** | encuesta `otros_destinos` | Co-ocurrencia de códigos de destino (320, 340, 222, 484) — **sin diccionario, no se nombran** |
 
 ### 4.3 Salidas del módulo
 
 - Gráfico de embudo: entradas por frontera → transferencia a destino (muestral).
 - Tabla de tasa de transferencia con las 11 fronteras mapeadas.
 - Grafo/mapa de conectividad fluvial.
-- **3–5 recomendaciones accionables para INGUAT** respaldadas en los cuellos de botella medidos.
+- **3–5 recomendaciones accionables para INGUAT** respaldadas en los cuellos de
+  botella medidos.
+
+### 4.4 Limitación estructural que hay que declarar
+
+La taxonomía de transporte de la encuesta tiene **11 categorías y ninguna es
+acuática** (no hay lancha, barco ni lanchaje; verificado sobre las 227,347 filas).
+Por eso **la conectividad fluvial no se mide como modo de transporte**, sino como
+**cadena espacial de nodos**: frontera de entrada → nodo del corredor
+(Río Dulce, Puerto Barrios, Livingston) → subdestino.
+
+Esto es un hallazgo, no un fallo del análisis, y debe aparecer explícitamente en
+la memoria técnica: es el tipo de limitación que la guía pide documentar.
+
+### 4.5 Supuesto sobre los códigos de destino
+
+`otros_destinos` guarda itinerarios multi-parada con códigos numéricos (320, 340,
+222, 484, 998) que pertenecen a un catálogo por base (V10/V11/V12) **que no viene
+con diccionario**. Se reporta la **estructura de co-ocurrencia** —que es un
+hecho— pero **no se les asigna nombre**: varias lecturas son consistentes con los
+datos (320 y 340 podrían ser Río Dulce y Livingston en cualquier orden), así que
+nombrarlos sería inventar. **Pedir el catálogo a INGUAT es una de las
+recomendaciones del módulo.**
 
 ---
 
@@ -242,7 +314,7 @@ Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b
 | `src/models/forecast.py` | **Reemplazar el stub** por la arquitectura de 4 modelos (§3) |
 | `src/models/__init__.py` | exports públicos |
 | `src/analysis/feriados.py` | **NUEVO** — calendario de feriados de Guatemala 2021-2026 + eventos del destino; `es_feriado`, `es_evento`, `nombre_evento` |
-| `src/analysis/embudo.py` | **NUEVO** — tasa de transferencia frontera → destino |
+| `src/analysis/embudo.py` | **NUEVO** — composición analítica del Módulo 4: `descomposicion_corredor`, `cadena_flujo`, `grafo_conectividad`, `participacion_nodos_agua`, `modo_por_nodo`, `recomendaciones_inguat`, `perfil_itinerarios` |
 | `src/utils/helpers.py` | + `logit`, `ilogit`, `metricas_error` (MAPE/RMSE/MAE), `mapa_frontera` |
 
 ### 5.2 Transformaciones nuevas (`src/etl/transform.py`)
@@ -254,8 +326,12 @@ Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b
 | `survey_weekly_pattern` | M2 | Patrón semanal **normalizado** (promedio por día, no suma bruta) |
 | `survey_holiday_lift` | M2 | Lift % de cada festividad vs día regular promedio |
 | `survey_border_migration` | M4 | Cruce encuesta ↔ migración por frontera (mapeo 1:1) |
-| `survey_transfer_rate` | M4 | Tasa de transferencia por frontera |
-| `corridor_funnel_matrix` | M4 | Matriz corredor × mes |
+| `survey_transfer_rate` | M4 | Tasa de transferencia por frontera **con IC de Wilson** (proporción, §4.1) |
+| `survey_border_node_flow` | M4 | Cadena frontera → nodo del corredor (la conectividad fluvial) |
+| `survey_node_transport` | M4 | Modo de transporte por nodo del corredor |
+| `maritime_flow_profile` | M4 | Cobertura y **meses de solape** por frontera (el hallazgo central) |
+| `corridor_funnel_matrix` | M4 | Matriz corredor × mes × tipo de flujo |
+| `survey_itinerarios` | M4 | Co-ocurrencia de códigos de `otros_destinos` (sin diccionario) |
 | `occupancy_vs_affluence` | M3 | Cruce analítico de la ventana coincidente |
 | `migration_seasonal_index` | M2/M4 | Perfil estacional de migración por frontera |
 | `data_quality` (ampliar) | todos | + hueco 2022, + hueco 2025-01, + nota de decimales (encuestas expandidas) |
@@ -272,8 +348,9 @@ Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b
 | `app/pages/1_monitor_demanda.py` | **Reescritura** — KPIs (visitantes/mes, días-persona, estadía ponderada), segmentación, top nacionalidades, visualización enlazada |
 | `app/pages/2_dinamica_temporal.py` | **Reescritura** — serie diaria, selector de eventos con Lift, patrón semanal, pronóstico con backtest y métricas |
 | `app/pages/3_oferta_hotelera.py` | **Reescritura** — ocupación, ventana coincidente con cruce real, subdestinos, aviso de gap de capacidad |
-| `app/pages/4_conectividad_fluvial.py` | **Reescritura** — embudo cuantificado, tasa de transferencia, conectividad fluvial, recomendaciones |
+| `app/pages/4_conectividad_fluvial.py` | **Reescritura** — embudo cuantificado, tasa por frontera, cadena fluvial (grafo + heatmap), modo por nodo, cuellos de botella, recomendaciones con evidencia |
 | `app/pages/5_calidad_datos.py` | **NUEVO (opcional, recomendado)** — transparencia metodológica: cobertura, huecos, reglas aplicadas |
+| `notebooks/03_embudo_transferencia.ipynb` | **NUEVO** — análisis exploratorio del reto (hallazgo de fondo, mapeo, tasa, cadena, cuellos, itinerarios) |
 
 ### 5.4 Documentación y notebooks
 
@@ -294,10 +371,12 @@ Tasa de Transferencia(b) = VisitantesEncuesta_Izabal(b) / VisitantesMigración(b
 |---|---|
 | `test_forecast_bounds.py` | Ninguna predicción de ocupación fuera de [0,1] |
 | `test_forecast_metrics.py` | MAPE/RMSE/MAE coinciden con cálculo manual; nº de folds válidos |
-| `test_border_mapping.py` | Los 11 borders de la encuesta mapean 1:1 a migración |
+| `test_border_mapping.py` | Los 9 borders alimentadores mapean 1:1 a migración; 0 meses de solape en las marítimas |
+| `test_transfer_rate.py` | Tasa ∈ [0,1], denominador ≠ 0, IC de Wilson contiene la estimación, pesos suman 1 |
+| `test_corridor_share_gaps.py` | Los huecos del corredor son NaN y no 0 (regla 1) |
 | `test_holidays.py` | Calendario sin solapes ni fechas inválidas; lift calculado sobre días válidos |
-| `test_transfer_rate.py` | Tasa de transferencia en [0,1]; denominador nunca 0 |
 | `test_rules_extended.py` | Reglas 1–6 ampliadas (días-persona, patrón semanal normalizado, estimación no contada como observado) |
+| `test_dashboard_smoke.py` | Cada página del dashboard renderiza sin errores y sus selectores no la rompen |
 
 ---
 
@@ -388,7 +467,39 @@ Estructura exigida por la guía, mapeada a los archivos del repo:
 
 ## 9. Fases de ejecución (orden recomendado)
 
-### Fase 0 — Fundaciones (común)
+### 📍 Estado de avance (actualizado 2026-11-11)
+
+| Fase | Estado | Entregables |
+|---|---|---|
+| 0 · Fundaciones | ✅ | `asignacion_modulos.md`, `feriados.py`, helpers, `theme.py`, notebook 01 |
+| 1 · Pronóstico | ✅ | `forecast.py` (4 modelos + backtest), 3 salidas, tests, notebook 02 |
+| 2 · ETL transversal | ✅ | 12 transformaciones nuevas, `data_quality` ampliado, tests de reglas |
+| 3 · Módulos 1 y 3 | ✅ | páginas 1 y 3 reescritas con visualización enlazada |
+| **4 · Módulo 4 (reto)** | ✅ | `embudo.py`, 3 transformaciones, página 4 reescrita, notebook 03, 3 tests |
+| **5 · Módulo 2 en el dashboard** | ❌ | **la página 2 sigue con el esqueleto viejo** — los datos del pronóstico ya existen, falta exponerlos |
+| 6 · Pulido transversal | ⚠️ | `charts.py` y `kpis.py` listos; falta `app.py`, memoria técnica, catálogo, paleta en docs, notebook 04, página 5, README |
+
+**Correcciones aplicadas el 2026-11-11** (Fase 4):
+
+1. **Regla 1 en `corridor_share`** — la participación del corredor se calculaba
+   rellenando con 0 los meses sin registro, produciendo 107 filas que se leían
+   como "0 % de participación" cuando no había dato. Ahora es `NaN` + las
+   columnas `n_fronteras_con_dato` y `corredor_completo`.
+2. **`ISABAL_FEEDER_BORDERS`** — estaba en `None` con un comentario que decía
+   que el plan no enumeraba las fronteras alimentadoras. **Sí las enumeraba**
+   (§2.4): son 9, no 11. Ahora están las 9 y el comentário es correcto.
+   Impacto medido: el MAPE del modelo `factor_reparto` pasa de 11.43% a 11.27%
+   y la imputación de 2025-01 de 75.4 a 77.7. **El modelo ganador no cambia**
+   (`logit_ets` no usa migración).
+3. **Wilson con k=0** — el límite inferior del intervalo daba ~1e-18 en vez de
+   0, de modo que el IC no contenía la estimación puntual.
+4. **Fórmula de la tasa de transferencia** (§4.1) — se corrigió el plan, no el
+   código: la implementación ya era la correcta.
+5. **`docs/PLAN.md` §3.4 y §4** — actualizados con las métricas reales.
+
+**Tests: 50 → 85.**
+
+### Fase 0 — Fundaciones (común) ✅
 1. `docs/asignacion_modulos.md` con los nombres.
 2. `src/analysis/feriados.py` con el calendario GT 2021-2026 (base para M2).
 3. `src/utils/helpers.py`: `logit`/`ilogit`, `metricas_error`, `mapa_frontera`.
@@ -410,13 +521,14 @@ Estructura exigida por la guía, mapeada a los archivos del repo:
 13. Página 1 (A): KPIs, segmentación, nacionalidades, visualización enlazada.
 14. Página 3 (C): ocupación, ventana coincidente (con gráfico de dispersión y correlación), subdestinos, aviso de gap.
 
-### Fase 4 — Módulo 4 (D) · el reto
-15. `src/analysis/embudo.py`: mapeo + tasa de transferencia.
-16. Página 4 reescrita: embudo, tasa por frontera, conectividad fluvial, recomendaciones.
+### Fase 4 — Módulo 4 (D) · el reto ✅
+15. `src/analysis/embudo.py`: composición analítica del reto.
+16. Página 4 reescrita: embudo, tasa por frontera, cadena fluvial, modo por nodo, cuellos, recomendaciones.
 17. `notebooks/03_embudo_transferencia.ipynb`.
 
-### Fase 5 — M2 en el dashboard (B)
+### Fase 5 — M2 en el dashboard (B) ❌ **pendiente**
 18. Página 2: serie diaria, selector de eventos con Lift, patrón semanal, pronóstico con backtest y métricas visibles.
+    _Los datasets ya existen: `forecast_occupancy`, `forecast_survey`, `forecast_metrics`, `survey_holiday_lift`, `survey_weekly_pattern`._
 
 ### Fase 6 — Pulido transversal (todos)
 19. `app/app.py` reescrito con narrativa y storyline.
@@ -433,6 +545,8 @@ Estructura exigida por la guía, mapeada a los archivos del repo:
 ## 10. Criterios de aceptación (checklist de entrega)
 
 - [ ] Los 4 módulos del dashboard tienen contenido completo, sin checklists "Pendiente".
+      _Pendiente: la página 2 (Módulo 2) sigue con el esqueleto viejo aunque sus datos ya
+      están producidos y probados — es el bloque de mayor retorno que queda._
 - [ ] Existe un pronóstico con **MAPE/RMSE/MAE reportados** y backtest rolling-origin visible en la página 2.
 - [ ] Todas las cifras estimadas están **rotuladas y diferenciadas** (violeta + discontinuo + etiqueta).
 - [ ] Ninguna predicción de ocupación sale de [0,1].

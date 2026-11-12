@@ -9,14 +9,18 @@
 ## 👥 Equipo y módulos
 
 El dashboard tiene **4 módulos**, uno por integrante. Ver la asignación en
-[`docs/asignacion_modulos.md`](docs/asignacion_modulos.md).
+[`docs/asignacion_modulos.md`](docs/asignacion_modulos.md) y el plan maestro
+completo en [`docs/PLAN.md`](docs/PLAN.md).
 
-| Módulo | Responsable |
-|---|---|
-| 1. Monitor de Demanda y Mercados Emisores | _por asignar_ |
-| 2. Dinámica Temporal, Eventos y Pronóstico | _por asignar_ |
-| 3. Oferta Hotelera y Desagregación Territorial | _por asignar_ |
-| 4. Conectividad Fluvial y Embudo de Transferencia | _por asignar_ |
+| Módulo | Responsable | Estado |
+|---|---|---|
+| 1. Monitor de Demanda y Mercados Emisores | _por asignar_ | ✅ En el dashboard |
+| 2. Dinámica Temporal, Eventos y Pronóstico | _por asignar_ | ⚠️ Pronóstico listo; falta exponerlo en la página |
+| 3. Oferta Hotelera y Desagregación Territorial | _por asignar_ | ✅ En el dashboard |
+| 4. Conectividad Fluvial y Embudo de Transferencia | _por asignar_ | ✅ En el dashboard |
+
+> 📍 **Plan de trabajo y estado de avance:** [`docs/PLAN.md`](docs/PLAN.md)
+> 📄 **Memoria técnica (en construcción):** [`docs/memoria_tecnica.md`](docs/memoria_tecnica.md)
 
 ---
 
@@ -53,26 +57,29 @@ Proyecto3-DS/
 │   ├── raw/                  # fuentes originales (ignoradas por git)
 │   └── processed/            # salida del ETL (ignorada por git)
 ├── src/
-│   ├── config.py             # rutas y constantes de negocio
+│   ├── config.py             # rutas, constantes de negocio, paleta
 │   ├── data.py               # carga de datos procesados
 │   ├── etl/
 │   │   ├── load.py           # carga por formato (xlsx, csv, parquet)
 │   │   ├── clean.py          # limpieza y normalización
-│   │   ├── transform.py      # transformaciones analíticas
+│   │   ├── transform.py      # transformaciones analíticas (28)
 │   │   └── pipeline.py       # orquestador
-│   ├── models/forecast.py    # pronóstico (Fase 3)
+│   ├── models/forecast.py    # 4 modelos + backtest rolling-origin
+│   ├── analysis/
+│   │   ├── feriados.py       # calendario de feriados de Guatemala
+│   │   └── embudo.py         # composición analítica del Módulo 4
 │   └── utils/helpers.py
 ├── app/
 │   ├── app.py                # página principal
 │   ├── pages/                # 4 módulos (uno por integrante)
-│   ├── components/           # carga de datos y KPIs
+│   ├── components/           # theme.py, charts.py, kpis.py, data.py
 │   └── assets/style.css
-├── notebooks/                # análisis exploratorio
+├── notebooks/                # análisis exploratorio (01, 02, 03)
 ├── docs/
-│   ├── Guia_Proyecto_Observatorio_Turistico_UVG.pdf
+│   ├── PLAN.md               # plan maestro y estado de avance
 │   ├── asignacion_modulos.md
-│   └── memoria_tecnica.md    # Fase 6
-├── tests/
+│   └── memoria_tecnica.md    # entrega formal (en construcción)
+├── tests/                    # 85 pruebas
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
@@ -123,10 +130,23 @@ python -m src.etl.pipeline
 1. **Load:** lee las tres fuentes (`.xlsx`, `.csv`, `.parquet`).
 2. **Clean:** normaliza fechas y texto, aplica banderas de negocio.
 3. **Transform:** construye las series y agregaciones del observatorio.
-4. **Save:** escribe `data/processed/*.parquet` y copias `.csv`.
+4. **Forecast:** 4 modelos comparados con backtest rolling-origin (§3 del plan).
+5. **Save:** escribe `data/processed/*.parquet` y copias `.csv`.
 
 Si el dashboard no encuentra `data/processed/`, ejecuta el pipeline
 automáticamente.
+
+### Hallazgos estructurales que condicionan el análisis
+
+- El **corredor marítimo de Izabal no tiene embudo medible**: en Puerto Barrios,
+  Livingston y Santo Tomás, los visitantes (2009-2016) y el tránsito (2023-2026)
+  **nunca coinciden en un mismo mes** (0 meses de solape). El embudo medible es el
+  terrestre, sobre las 9 fronteras alimentadoras.
+- La encuesta **no tiene factor de expansión** y **no cubre fronteras marítimas**
+  ni tiene categoría de transporte acuático.
+- La fuente de ocupación **no contiene inventario de establecimientos**,
+  habitaciones ni plazas cama: esa parte del Módulo 3 se documenta como
+  limitación y se recomienda a INGUAT como dato a incorporar.
 
 ---
 
@@ -147,9 +167,12 @@ automáticamente.
 pytest -q
 ```
 
-Validan el esquema de las fuentes, la definición de visitante, la fórmula de
-estadía ponderada y las reglas estrictas (huecos conservados, no suma de
-subdestinos, etc.).
+85 pruebas que validan el esquema de las fuentes, la definición de visitante, la
+fórmula de estadía ponderada, las reglas estrictas (huecos conservados, no suma
+de subdestinos, ausencia ≠ cero), los límites del pronóstico (dentro de
+[0,1]), sus métricas de error, el mapeo 1:1 de fronteras, la tasa de
+transferencia y una prueba de humo que ejecuta **cada página del dashboard y
+sus selectores**.
 
 ---
 

@@ -5,6 +5,7 @@ pandas>=3.0
 numpy>=2.5
 openpyxl>=3.1
 pyarrow>=17.0
+python-dateutil>=2.8   # Semilla Santa en src/analysis/feriados.py
 streamlit>=1.40
 plotly>=5.24
 statsmodels>=0.14

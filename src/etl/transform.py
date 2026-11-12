@@ -9,6 +9,7 @@ import pandas as pd
 from src.config import (
     CORRIDOR_BORDERS,
     DESTINATION_DEPT,
+    ISABAL_FEEDER_BORDERS,
     IZABAL_BORDERS,
     SURVEY_BORDER_MAP,
     VENTANA_COINCIDENTE,
@@ -102,19 +103,63 @@ def corridor_transit_monthly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def corridor_share(df: pd.DataFrame) -> pd.DataFrame:
-    """Participación mensual de Izabal en el corredor (nunca se suman subdestinos)."""
+    """Participación mensual de Izabal en el corredor (nunca se suman subdestinos).
+
+    REGLA 1 (la ausencia de dato no es cero):
+        Un mes en el que una frontera NO tiene registro es ausencia, no cero.
+        Por eso no se rellena con 0: si ninguna frontera de Izabal tiene dato
+        en el mes, ``viajeros_izabal`` queda en NaN, y ``participacion`` también
+        (el denominador estaría incompleto y la razón sería sesgada).
+
+        Consecuencia medida: Izabal tiene registro de VISITANTES solo entre
+        2009-01 y 2016-12; de 2017 en adelante la frontera solo registra
+        'Viajero' (tránsito), que no es visitante. Por eso 2017-2026 aparece
+        como "Sin dato" y no como 0 % de participación.
+
+    Columnas de contexto:
+        n_fronteras_con_dato  cuántas fronteras del corredor tienen registro ese mes
+        corredor_completo     si las 5 fronteras del corredor tienen dato ese mes
+    """
     corredor = df[df["es_visita"] & df["Frontera"].isin(CORRIDOR_BORDERS)]
     pivot = corredor.pivot_table(
-        index="fecha", columns="Frontera", values="Viajero", aggfunc="sum", fill_value=0
+        index="fecha", columns="Frontera", values="Viajero", aggfunc="sum"
     )
     if pivot.empty:
-        return pd.DataFrame(columns=["fecha", "viajeros_izabal", "viajeros_corredor", "participacion"])
-    pivot["viajeros_corredor"] = pivot.sum(axis=1)
+        return pd.DataFrame(
+            columns=[
+                "fecha",
+                "viajeros_izabal",
+                "viajeros_corredor",
+                "participacion",
+                "n_fronteras_con_dato",
+                "corredor_completo",
+            ]
+        )
+    # min_count=1 -> NaN solo si NINGUNA frontera tiene dato (ausencia real)
+    cols_frontera = list(pivot.columns)
+    pivot["viajeros_corredor"] = pivot.sum(axis=1, min_count=1)
     # Izabal = suma de sus fronteras (es el destino completo, no subdestinos)
-    izabal_cols = [c for c in pivot.columns if c in IZABAL_BORDERS]
-    pivot["viajeros_izabal"] = pivot[izabal_cols].sum(axis=1) if izabal_cols else 0
-    pivot["participacion"] = pivot["viajeros_izabal"] / pivot["viajeros_corredor"].replace(0, pd.NA)
-    return pivot[["viajeros_izabal", "viajeros_corredor", "participacion"]].reset_index()
+    izabal_cols = [c for c in cols_frontera if c in IZABAL_BORDERS]
+    pivot["viajeros_izabal"] = (
+        pivot[izabal_cols].sum(axis=1, min_count=1) if izabal_cols else pd.NA
+    )
+    # Conteo de cobertura sobre las columnas de frontera (antes de derivar columnas)
+    pivot["n_fronteras_con_dato"] = pivot[cols_frontera].notna().sum(axis=1).astype(int)
+    pivot["corredor_completo"] = pivot["n_fronteras_con_dato"].eq(len(CORRIDOR_BORDERS))
+    # La participación solo es calculable si el corredor está completo: con una
+    # frontera faltando, tanto el numerador como el denominador están sesgados.
+    pivot["participacion"] = np.where(
+        pivot["corredor_completo"], pivot["viajeros_izabal"] / pivot["viajeros_corredor"], np.nan
+    )
+    return pivot[
+        [
+            "viajeros_izabal",
+            "viajeros_corredor",
+            "participacion",
+            "n_fronteras_con_dato",
+            "corredor_completo",
+        ]
+    ].reset_index()
 
 
 # ---------------------------------------------------------------------------
@@ -532,13 +577,21 @@ def survey_border_migration(sur: pd.DataFrame, mig: pd.DataFrame) -> pd.DataFram
 
 
 def _wilson(k, n, z: float = 1.96):
+    """Intervalo de Wilson al 95% para una proporción.
+
+    Con k = 0 el límite inferior es exactamente 0 (en aritmética de punto
+    flotante quedaba en ~1e-18, lo que hacía que el intervalo "no contuviera"
+    la estimación puntual).
+    """
     k, n = np.asarray(k, dtype=float), np.asarray(n, dtype=float)
     with np.errstate(invalid="ignore", divide="ignore"):
         p = k / n
         den = 1 + z**2 / n
         centro = (p + z**2 / (2 * n)) / den
         margen = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / den
-    return np.clip(centro - margen, 0, 1), np.clip(centro + margen, 0, 1)
+    inferior = np.where(k <= 0, 0.0, centro - margen)
+    superior = np.where(k >= n, 1.0, centro + margen)
+    return np.clip(inferior, 0, 1), np.clip(superior, 0, 1)
 
 
 def survey_transfer_rate(sur: pd.DataFrame, mig: pd.DataFrame) -> pd.DataFrame:
@@ -608,11 +661,12 @@ def migration_seasonal_index(mig: pd.DataFrame, desde: int = 2023, hasta: int = 
 
     Se promedia el índice entre años COMPLETOS (12 meses con dato) del rango
     [desde, hasta]; por defecto 2023-2025 (posterior al quiebre 2022→2023).
-    Incluye el agregado 'Alimentadoras de Izabal' (11 fronteras mapeadas).
+    Incluye el agregado 'Alimentadoras de Izabal' (las 9 fronteras que
+    efectivamente alimentan el destino; ver ISABAL_FEEDER_BORDERS).
     """
     mm = _migracion_por_frontera_mes(mig)
     alim = (
-        mm[mm["Frontera"].isin(SURVEY_BORDER_MAP.values())]
+        mm[mm["Frontera"].isin(ISABAL_FEEDER_BORDERS)]
         .groupby("fecha", as_index=False)[["migracion_visitantes", "migracion_transito"]].sum()
         .assign(Frontera="Alimentadoras de Izabal")
     )
@@ -635,6 +689,128 @@ def migration_seasonal_index(mig: pd.DataFrame, desde: int = 2023, hasta: int = 
         filas.append(g)
     return pd.concat(filas, ignore_index=True) if filas else pd.DataFrame(
         columns=["Frontera", "tipo_flujo", "mes", "indice", "n_anios"])
+
+
+# ---------------------------------------------------------------------------
+# Módulo 4 · Conectividad fluvial y embudo de transferencia
+# ---------------------------------------------------------------------------
+# Nodos del corredor fluvial de Izabal. 'Río Dulce', 'Puerto Barrios' y
+# 'Livingston' son los tres nodos de agua (río y mar); el resto son nodos
+# terrestres del interior del departamento.
+NODOS_CORREDOR = [
+    "Río Dulce",
+    "Puerto Barrios",
+    "Livingston",
+    "Santo Tomás de Castilla",
+    "Quiriguá",
+    "El Estor",
+    "Entre Ríos",
+    "Morales",
+    "Los Amates",
+    "Izabal (genérico)",
+]
+NODOS_AGUA = ["Río Dulce", "Puerto Barrios", "Livingston"]
+
+
+def survey_border_node_flow(df: pd.DataFrame) -> pd.DataFrame:
+    """Flujo frontera de entrada -> nodo del corredor fluvial (Módulo 4).
+
+    Es la tabla que reconstruye la cadena de conectividad del destino:
+    de dónde entra cada visitante (frontera) y hacia qué nodo se dirige.
+
+    Base: encuesta (MUESTRAL, sin factor de expansión -> solo proporciones).
+    Regla 4: los nodos NO se suman entre sí para obtener el total, porque un
+    mismo visitante puede recorrer varios; por eso cada fila se reporta con su
+    participación dentro de la frontera, nunca como total del destino.
+    """
+    d = _con_segmento(df[df["es_izabal"]])
+    d = d.assign(nodo=d["subdestino"].where(d["subdestino"].isin(NODOS_CORREDOR), "Otro"))
+    g = (
+        d.groupby(["frontera_nombre", "nodo", "segmento"], as_index=False)
+        .agg(
+            registros=("id_unico", "count"),
+            visitantes=("total_visitantes", "sum"),
+            dias_persona=("dias_persona", "sum"),
+        )
+        .sort_values(["frontera_nombre", "registros"], ascending=[True, False])
+    )
+    # Participación dentro de cada frontera (no del destino)
+    tot = g.groupby("frontera_nombre")["registros"].transform("sum").replace(0, np.nan)
+    g["participacion_frontera"] = g["registros"] / tot
+    # Rango de fechas en que la frontera operó (para el contexto)
+    ventana = (
+        d.groupby("frontera_nombre")["fecha"]
+        .agg(fecha_min="min", fecha_max="max")
+        .reset_index()
+    )
+    g = g.merge(ventana, on="frontera_nombre", how="left")
+    g["es_nodo_agua"] = g["nodo"].isin(NODOS_AGUA)
+    return g.reset_index(drop=True)
+
+
+def survey_node_transport(df: pd.DataFrame) -> pd.DataFrame:
+    """Modo de transporte por nodo del corredor (Módulo 4).
+
+    LIMITACIÓN DOCUMENTADA: la taxonomía de la encuesta (11 categorías) NO
+    incluye transporte acuático (lancha, barco, lanchaje). Por eso la
+    conectividad fluvial NO se mide como modo de transporte, sino como cadena
+    espacial de nodos. Esta tabla muestra el modo tierra/aire con el que se
+    llega a cada nodo, que es lo que sí es observable.
+    """
+    d = df[df["es_izabal"]].copy()
+    d["nodo"] = d["subdestino"].where(d["subdestino"].isin(NODOS_CORREDOR), "Otro")
+    g = (
+        d.groupby(["nodo", "tipo_transporte"], as_index=False)
+        .agg(registros=("id_unico", "count"), visitantes=("total_visitantes", "sum"))
+        .sort_values(["nodo", "registros"], ascending=[True, False])
+    )
+    total = g.groupby("nodo")["registros"].transform("sum").replace(0, np.nan)
+    g["participacion_nodo"] = g["registros"] / total
+    g["es_nodo_agua"] = g["nodo"].isin(NODOS_AGUA)
+    return g.reset_index(drop=True)
+
+
+def maritime_flow_profile(df: pd.DataFrame) -> pd.DataFrame:
+    """Perfil de cobertura por frontera: qué tipos de flujo existen y si se solapan.
+
+    HALLAZGO CENTRAL DEL MÓDULO 4: en las fronteras marítimas de Izabal
+    (Puerto Barrios, Livingston, Santo Tomás) los registros de VISITANTES
+    (Turista/Excursionista) y de TRÁNSITO ('Viajero') nunca coinciden en un
+    mismo mes: los visitantes se apagan en 2016 y el tránsito solo aparece
+    desde 2023. Por eso el embudo marítimo NO es medible con la base oficial
+    y su tasa de transferencia no debe calcularse.
+
+    `meses_solape` es la métrica que lo demuestra: 0 para toda frontera
+    marítima, >0 para las terrestres alimentadoras.
+    """
+    fronteras = list(dict.fromkeys([*CORRIDOR_BORDERS, *ISABAL_FEEDER_BORDERS]))
+    filas = []
+    for f in fronteras:
+        s = df[df["Frontera"].eq(f)]
+        if s.empty:
+            continue
+        meses_vis = set(_mes(s.loc[s["es_visita"], "fecha"]))
+        meses_tra = set(_mes(s.loc[s["Tipo de Viajero"].eq("Viajero"), "fecha"]))
+        meses_cru = set(_mes(s.loc[s["Tipo de Viajero"].eq("Cruceristas"), "fecha"]))
+        solape = sorted(meses_vis & meses_tra)
+        filas.append(
+            {
+                "Frontera": f,
+                "es_destino_maritimo": f in IZABAL_BORDERS,
+                "es_alimentadora": f in ISABAL_FEEDER_BORDERS,
+                "meses_visitantes": len(meses_vis),
+                "meses_transito": len(meses_tra),
+                "meses_cruceros": len(meses_cru),
+                "meses_solape": len(solape),
+                "embudo_medible": len(solape) > 0,
+                "rango_visitantes": _rangos_texto(meses_vis),
+                "rango_transito": _rangos_texto(meses_tra),
+                "rango_cruceros": _rangos_texto(meses_cru),
+            }
+        )
+    return pd.DataFrame(filas).sort_values(
+        ["es_alimentadora", "meses_solape"], ascending=[False, False]
+    ).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
