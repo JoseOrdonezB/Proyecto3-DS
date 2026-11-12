@@ -24,9 +24,25 @@ BADGE_COLOR = {
 }
 
 
+# Alturas estándar: mantenerlas iguales da ritmo a la pantalla y hace que dos
+# gráficos quepan en un mismo plano. Ver app/components/layout.py.
+ALTURAS_ESTANDAR = {300, 380, 440}
+
+
 def estilo(fig: go.Figure, alto: int = 360, x: str | None = None, y: str | None = None,
            y_pct: bool = False, leyenda: bool = True) -> go.Figure:
-    """Aplica el estilo base: fondo limpio, rejilla recesiva, hover unificado."""
+    """Aplica el estilo base: fondo limpio, rejilla recesiva, hover unificado.
+
+    `alto` debe ser una de las alturas estándar (300 / 380 / 440). Cualquier
+    otra se avisa: romper el ritmo de la pantalla es el modo más fácil de que
+    una página se vea mal sin que nadie lo note.
+    """
+    if alto not in ALTURAS_ESTANDAR:
+        st.warning(
+            f"Altura de gráfico fuera del estándar: {alto} px. Usa ALTURA (300), "
+            "ALTURA_GRANDE (380) o ALTURA_ALTA (440) de app.components.layout.",
+            icon="⚠️",
+        )
     fig.update_layout(
         height=alto,
         margin=dict(l=10, r=10, t=40, b=10),
@@ -42,6 +58,22 @@ def estilo(fig: go.Figure, alto: int = 360, x: str | None = None, y: str | None 
     fig.update_yaxes(title=y, gridcolor=GRID, zeroline=False)
     if y_pct:
         fig.update_yaxes(tickformat=".0%")
+    return fig
+
+
+def titulo_grafico(fig: go.Figure, afirmacion: str, subtitulo: str | None = None) -> go.Figure:
+    """Pone el título del gráfico como afirmación con la cifra dentro.
+
+    `afirmacion` es lo que el lector debe quedarse del gráfico; `subtitulo`
+    explica qué se está mirando (o de qué tipo de dato es).
+    """
+    texto = f"<b>{afirmacion}</b>"
+    if subtitulo:
+        texto += f"<br><span style='font-size:12px;color:{PALETA['neutro']}'>{subtitulo}</span>"
+    fig.update_layout(
+        title=dict(text=texto, font=dict(size=15, color=PALETA["texto"]), x=0, xanchor="left"),
+        margin=dict(l=10, r=10, t=64, b=10),
+    )
     return fig
 
 

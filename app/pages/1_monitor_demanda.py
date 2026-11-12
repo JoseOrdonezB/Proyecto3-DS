@@ -1,14 +1,16 @@
 """Módulo 1: Monitor de Demanda y Mercados Emisores (Diagnóstico Macro).
 
-Preguntas de gestión que responde:
-    1. ¿Cuántos visitantes recibe Izabal y cuánto se quedan?
-    2. ¿Son turistas (pernoctan) o excursionistas?
-    3. ¿De qué mercados vienen y qué perfil tiene cada uno?
-    4. ¿Cuánta gente entra al país por las fronteras que alimentan Izabal?
+La historia que cuenta este módulo, en tres pasos:
+
+    1. Cuántos llegan a Izabal y cuántos se quedan a dormir.
+    2. De qué mercados vienen y qué perfil tiene cada uno.
+    3. Por las fronteras que alimentan el destino, cuánta gente entra al país.
+
+Visualización enlazada: el filtro de mercado (selector o clic en la barra del
+ranking) actualiza KPIs, segmentación, estadía, perfil y serie de migración.
 
 Fuentes: encuesta (muestral, sin factor de expansión) y base de migración
-(absoluta). Visualización enlazada: el filtro de mercado (selector o clic en la
-barra del ranking) actualiza KPIs, segmentación, estadía, perfil y serie de migración.
+(absoluta). La encuesta solo se lee como proporción (regla 6).
 """
 
 import sys
@@ -21,33 +23,29 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.components.charts import colores_foco, encabezado, estilo, marcar_hueco, pct_texto
+from app.components.charts import colores_foco, estilo, marcar_hueco, pct_texto, titulo_grafico
 from app.components.data import get
-from app.components.kpis import advertencia, kpi, nota, titulo_modulo
+from app.components.kpis import advertencia, nota
+from app.components.layout import (
+    ALTURA,
+    ALTURA_GRANDE,
+    insight,
+    kpis,
+    modulo,
+    seccion,
+)
 from app.components.theme import PALETA
 from src.config import SURVEY_BORDER_MAP, SURVEY_NATIONALITY_MAP, VISITOR_TYPES
 
 st.set_page_config(page_title="M1 · Demanda y Mercados", page_icon="📊", layout="wide")
 
-titulo_modulo(
-    "📊 Módulo 1 · Monitor de Demanda y Mercados Emisores",
-    "¿Quién visita Río Dulce y Livingston, cuánto se queda y de dónde viene? "
-    "Haz clic en un mercado del ranking para filtrar todo el módulo.",
-)
-
-MIN_N = 30  # muestra mínima recomendada para leer porcentajes
-
-
-# ---------------------------------------------------------------------------
-# Datos
-# ---------------------------------------------------------------------------
 cubo = get("survey_izabal_cube")
 cubo["fecha"] = pd.to_datetime(cubo["fecha"])
 
 
 @st.cache_data(show_spinner=False)
 def migracion_alimentadoras() -> pd.DataFrame:
-    """Visitantes (Turista+Excursionista) por mes y país en las 11 fronteras mapeadas."""
+    """Visitantes (Turista+Excursionista) por mes y país en las fronteras mapeadas."""
     mm = get("migration_monthly")
     m = mm[mm["Frontera"].isin(SURVEY_BORDER_MAP.values()) & mm["Tipo de Viajero"].isin(VISITOR_TYPES)]
     return m.groupby(["fecha", "País"], as_index=False)["viajeros"].sum()
@@ -55,12 +53,43 @@ def migracion_alimentadoras() -> pd.DataFrame:
 
 mig = migracion_alimentadoras()
 paises_mig = set(mig["País"])
-
 meses = pd.date_range(cubo["fecha"].min(), cubo["fecha"].max(), freq="MS")
 etiquetas = [m.strftime("%Y-%m") for m in meses]
+MIN_N = 30
+
+# --- Cifras de cabecera -----------------------------------------------------
+vis_total = cubo["visitantes"].sum()
+vp_total = cubo["visitantes_pernocta"].sum()
+dp_total = cubo["dias_persona"].sum()
+prop_pernocta = vp_total / vis_total if vis_total else 0.0
+estadia_media = dp_total / vp_total if vp_total else 0.0
+mercado_top = (
+    cubo[cubo["nacionalidad"].ne("Guatemala")]
+    .groupby("nacionalidad")["visitantes"].sum().nlargest(1).index.tolist()
+)
+nombre_mercado = mercado_top[0] if mercado_top else "el mercado principal"
+
+modulo(
+    "📊 Módulo 1 · Monitor de Demanda y Mercados Emisores",
+    "¿Cuántos visitantes recibe Izabal, cuánto se quedan y de dónde vienen?",
+    f"**{prop_pernocta:.0%} de los visitantes que llegan a Izabal pernoctan** y se quedan "
+    f"**{estadia_media:.1f} noches** en promedio; el mercado se concentra en "
+    f"**{nombre_mercado}**.",
+)
+
+kpis(
+    [
+        ("Encuestas (n)", f"{int(cubo['registros'].sum()):,}", "grupos de viaje con destino Izabal"),
+        ("Visitantes/mes (muestra)", f"{vis_total / max(cubo['fecha'].nunique(), 1):,.0f}",
+         "tamaño de muestra, no demanda real", "info"),
+        ("Pernoctan (turistas)", f"{prop_pernocta:.0%}", "visitantes que pasan > 24 h", "secundario"),
+        ("Estadía media ponderada", f"{estadia_media:.1f} noches", "Σ días-persona / Σ visitantes",
+         "acento"),
+    ]
+)
 
 # ---------------------------------------------------------------------------
-# Filtros (una fila, arriba de los gráficos)
+# Filtros
 # ---------------------------------------------------------------------------
 f1, f2, f3, f4 = st.columns([2.2, 1.3, 1.2, 1.6])
 with f1:
@@ -89,7 +118,6 @@ with f4:
     mercado = st.selectbox(f"Mercado ({lente.lower()})", opciones, key="m1_mercado")
 foco = None if mercado == "Todos" else mercado
 en_mercado = cubo[col_mercado].eq(foco) if foco else pd.Series(True, index=cubo.index)
-
 f = cubo[en_periodo & en_segmento & en_mercado]
 
 
@@ -109,50 +137,26 @@ if foco:
     )
 
 # ---------------------------------------------------------------------------
-# 1. KPIs
+# 1 · Llegada y permanencia
 # ---------------------------------------------------------------------------
-encabezado(
-    "¿Cuántos visitantes llegan a Izabal y cuánto se quedan?",
-    "Muestral",
-    "Indicadores calculados sobre la encuesta (sin factor de expansión): se leen como "
-    "proporciones y promedios ponderados, no como totales del destino.",
+seccion(
+    f"{prop_pernocta:.0%} de los visitantes hacen noche en el destino",
+    "Participación mensual de cada segmento en los visitantes encuestados. "
+    "El hueco gris es un mes sin encuesta: ausencia de dato, no cero.",
+    badge="Muestral",
 )
 
 n_reg = int(f["registros"].sum())
 vis = f["visitantes"].sum()
 vp = f["visitantes_pernocta"].sum()
 dp = f["dias_persona"].sum()
-meses_con_dato = f["fecha"].nunique()
-
-c1, c2, c3, c4, c5 = st.columns(5)
-with c1:
-    kpi("Encuestas (n)", f"{n_reg:,}", help="Grupos de viaje encuestados con destino Izabal/Caribe.")
-with c2:
-    kpi("Visitantes/mes (muestra)", f"{vis / meses_con_dato:,.0f}" if meses_con_dato else "Sin dato",
-        help="Promedio sobre los meses con encuesta. Es un tamaño de muestra, no la demanda real.")
-with c3:
-    kpi("Pernoctan (turistas)", f"{vp / vis:.1%}" if vis else "Sin dato",
-        help="Visitantes que pasan > 24 h / visitantes totales de la muestra.")
-with c4:
-    kpi("Estadía media ponderada", f"{dp / vp:.1f} noches" if vp else "Sin dato",
-        help="Σ días-persona / Σ visitantes que pernoctan (nunca un promedio simple).")
-with c5:
-    kpi("Días-persona (muestra)", f"{dp:,.0f}", help="Σ (noches × visitantes) de quienes pernoctan.")
-
 if 0 < n_reg < MIN_N:
     advertencia(f"Solo hay **{n_reg} encuestas** con estos filtros: los porcentajes son poco estables.")
 elif n_reg == 0:
     advertencia("No hay encuestas con esta combinación de filtros.")
 
-# ---------------------------------------------------------------------------
-# 2. Segmentación turista vs excursionista + estadía mensual
-# ---------------------------------------------------------------------------
-st.divider()
-col_a, col_b = st.columns([1.35, 1])
-
+col_a, col_b = st.columns([1.3, 1])
 with col_a:
-    encabezado("¿Son turistas o excursionistas?", "Muestral",
-               "Participación mensual de cada segmento en los visitantes encuestados.")
     s = cubo[en_periodo & en_mercado].groupby(["fecha", "segmento"])["visitantes"].sum().unstack()
     s = s.reindex(pd.date_range(ini, fin, freq="MS")).reindex(columns=["Turista", "Excursionista"])
     con_dato = s.notna().any(axis=1)
@@ -170,14 +174,13 @@ with col_a:
         )
     fig.update_layout(barmode="stack")
     for m in s.index[~con_dato]:
-        if not foco:  # sin filtro de mercado, el mes vacío es un hueco real de la encuesta
+        if not foco:
             marcar_hueco(fig, m)
-    estilo(fig, 340, y="% de visitantes", y_pct=True)
+    estilo(fig, ALTURA_GRANDE, y="% de visitantes", y_pct=True)
+    titulo_grafico(fig, "El peso de quien pernocta se mantiene estable todo el año")
     st.plotly_chart(fig, width="stretch")
 
 with col_b:
-    encabezado("¿Cuánto se queda quien pernocta?", "Muestral",
-               "Estadía media ponderada mensual. Marcador vacío = mes con menos de 10 encuestas.")
     e = f[f["segmento"].eq("Turista")].groupby("fecha")[["dias_persona", "visitantes_pernocta", "registros"]].sum()
     e = e.reindex(pd.date_range(ini, fin, freq="MS"))
     e["estadia"] = e["dias_persona"] / e["visitantes_pernocta"].replace(0, np.nan)
@@ -194,18 +197,27 @@ with col_b:
     if vp:
         fig.add_hline(y=dp / vp, line_dash="dot", line_color=PALETA["neutro"],
                       annotation_text=f"Período: {dp / vp:.1f}", annotation_position="top left")
-    estilo(fig, 340, y="Noches", leyenda=False)
+    estilo(fig, ALTURA_GRANDE, y="Noches", leyenda=False)
+    titulo_grafico(fig, "La estadía media ponderada ronda las {} noches".format(
+        f"{dp / vp:.1f}" if vp else "—"))
     st.plotly_chart(fig, width="stretch")
+    st.caption("Marcador vacío = mes con menos de 10 encuestas.")
+
+insight(
+    f"La estadía media ponderada del período es de **{dp / vp:.1f} noches** "
+    f"(Σ días-persona / Σ visitantes que pernoctan, nunca un promedio simple). "
+    f"Un excursionista **no** entra en ese cálculo: una estancia de menos de 24 h no es permanencia."
+    if vp else "Sin visitantes que pernocten en este filtro: no hay estadía que calcular."
+)
 
 # ---------------------------------------------------------------------------
-# 3. Mercados emisores (ranking clicable)
+# 2 · Mercados emisores
 # ---------------------------------------------------------------------------
-st.divider()
-encabezado(
-    "¿De qué mercados vienen?",
-    "Muestral",
-    f"Top 10 mercados extranjeros por {lente.lower()} (% de visitantes encuestados). "
-    "Haz clic en una barra para filtrar el resto del módulo.",
+seccion(
+    f"El mercado de Izabal se concentra en {nombre_mercado}",
+    f"Top 10 mercados extranjeros por {lente.lower()} como porcentaje de la muestra. "
+    "Clic en una barra para filtrar todo el módulo.",
+    badge="Muestral",
 )
 
 rk = ranking_base.groupby(col_mercado)["visitantes"].sum()
@@ -214,7 +226,7 @@ nacionales = rk.get("Guatemala", 0.0)
 ext = rk.drop("Guatemala", errors="ignore").sort_values(ascending=False)
 top = ext.head(10)
 
-col_r, col_t = st.columns([1.2, 1])
+col_r, col_t = st.columns([1.15, 1])
 with col_r:
     fig = go.Figure(go.Bar(
         x=(top / tot_rk).values[::-1], y=top.index[::-1], orientation="h",
@@ -223,17 +235,18 @@ with col_r:
         hovertemplate="%{y}: %{x:.1%} de la muestra<br>%{customdata:,.0f} visitantes encuestados<extra></extra>",
         texttemplate="%{x:.0%}", textposition="outside", textfont=dict(color=PALETA["texto"]),
     ))
-    estilo(fig, 400, x="% de visitantes de la muestra", leyenda=False)
-    fig.update_xaxes(tickformat=".0%", range=[0, (top / tot_rk).max() * 1.18 if len(top) else 1])
+    estilo(fig, ALTURA_GRANDE, x="% de visitantes de la muestra", leyenda=False)
+    fig.update_xaxes(tickformat=".0%", range=[0, (top / tot_rk).max() * 1.2 if len(top) else 1])
     fig.update_layout(clickmode="event+select", dragmode=False)
+    titulo_grafico(fig, "Tres mercados explican la mayor parte de los visitantes extranjeros")
     st.plotly_chart(fig, width="stretch", key="m1_click", on_select=_al_clic, selection_mode="points")
     st.caption(
-        f"Nacionales (Guatemala) se reportan aparte: **{nacionales / tot_rk:.1%}** de la muestra"
+        f"Nacionales (Guatemala) se reportan aparte: **{nacionales / tot_rk:.1%}** de la muestra."
         if tot_rk else "Sin datos en el período."
     )
 
 with col_t:
-    st.markdown("**Nacionalidad vs. residencia** (top 10 nacionalidades)")
+    st.markdown(f"**Nacionalidad vs. residencia** (top 10 nacionalidades)")
     base = cubo[en_periodo & en_segmento]
     tot_b = base["visitantes"].sum()
     top_nac = base.groupby("nacionalidad")["visitantes"].sum().drop("Guatemala", errors="ignore").nlargest(10)
@@ -248,23 +261,32 @@ with col_t:
             "Residen fuera": reside_otro / v if v else np.nan,
         })
     st.dataframe(
-        pd.DataFrame(filas),
-        hide_index=True, width="stretch",
+        pd.DataFrame(filas), hide_index=True, width="stretch",
         column_config={
             "% nacionalidad": st.column_config.NumberColumn(format="percent"),
             "% residencia": st.column_config.NumberColumn(format="percent"),
             "Residen fuera": st.column_config.NumberColumn(format="percent"),
         },
     )
-    st.caption("*Residen fuera*: % de esa nacionalidad que vive en otro país. Una brecha alta indica diáspora o expatriados: el mercado emisor real es el país de residencia.")
+    st.caption("*Residen fuera*: % de esa nacionalidad que vive en otro país. Una brecha alta "
+               "indica diáspora o expatriados: el mercado emisor real es el país de residencia.")
 
 # ---------------------------------------------------------------------------
-# 4. Perfil del mercado (enlazado al filtro)
+# 3 · Perfil del visitante
 # ---------------------------------------------------------------------------
-st.divider()
-titulo_perfil = f"¿Cómo llega y dónde se aloja {('el mercado ' + foco) if foco else 'el visitante'}?"
-encabezado(titulo_perfil, "Muestral",
-           "Las tres gráficas responden al período, segmento y mercado seleccionados.")
+_fr = cubo.groupby("frontera_nombre")["visitantes"].sum().sort_values(ascending=False)
+_hos = cubo.groupby("hospedaje")["visitantes"].sum().sort_values(ascending=False)
+_tr = cubo.groupby("tipo_transporte")["visitantes"].sum().sort_values(ascending=False)
+cuota_frontera = float(_fr.iloc[0] / cubo["visitantes"].sum()) if len(_fr) else 0.0
+cuota_hospedaje = float(_hos.iloc[0] / cubo["visitantes"].sum()) if len(_hos) else 0.0
+cuota_bus = float(_tr.iloc[0] / cubo["visitantes"].sum()) if len(_tr) else 0.0
+
+seccion(
+    f"El {cuota_frontera:.0%} entra por {_fr.index[0]} y el {cuota_bus:.0%} llega en {_tr.index[0].lower()}",
+    "Las tres gráficas responden al período, el segmento y el mercado seleccionados."
+    + (f" Foco: **{foco}**." if foco else ""),
+    badge="Muestral",
+)
 
 
 def barras_participacion(columna: str, titulo: str, top_n: int = 6):
@@ -280,9 +302,10 @@ def barras_participacion(columna: str, titulo: str, top_n: int = 6):
         text=pct_texto(p.values[::-1]), textposition="outside", textfont=dict(color=PALETA["texto"]),
         hovertemplate="%{y}: %{x:.1%}<extra></extra>",
     ))
-    estilo(fig, 300, leyenda=False)
-    fig.update_xaxes(tickformat=".0%", range=[0, p.max() * 1.25], visible=False)
-    fig.update_layout(title=dict(text=titulo, font=dict(size=14)), margin=dict(t=40))
+    estilo(fig, ALTURA, leyenda=False)
+    fig.update_xaxes(tickformat=".0%", range=[0, p.max() * 1.3], visible=False)
+    fig.update_layout(title=dict(text=titulo, font=dict(size=13, color=PALETA["texto"])),
+                      margin=dict(t=34, l=10, r=10, b=10))
     st.plotly_chart(fig, width="stretch")
 
 
@@ -295,20 +318,20 @@ with p3:
     barras_participacion("tipo_transporte", "Medio de transporte")
 
 # ---------------------------------------------------------------------------
-# 5. Migración por las fronteras alimentadoras (absoluto)
+# 4 · Migración por las fronteras alimentadoras
 # ---------------------------------------------------------------------------
-st.divider()
+seccion(
+    "Por las fronteras que alimentan Izabal entra mucha más gente de la que visita el destino",
+    "Turistas y excursionistas registrados por Migración en las fronteras por donde entra la "
+    "muestra de Izabal. Mide la puerta de entrada al país, no los visitantes que llegan a Izabal.",
+    badge="Observado",
+)
+
 pais_mig = None
 if foco:
     candidato = SURVEY_NATIONALITY_MAP.get(foco, foco)
     pais_mig = candidato if candidato in paises_mig else None
 etiqueta_mig = pais_mig if pais_mig else "todos los mercados"
-encabezado(
-    f"¿Cuántos visitantes entran por las fronteras que alimentan Izabal? ({etiqueta_mig})",
-    "Observado",
-    "Turistas + excursionistas registrados por Migración en las 11 fronteras por donde entra la "
-    "muestra de Izabal. Mide la puerta de entrada al país, no los visitantes que llegan a Izabal.",
-)
 if foco and not pais_mig:
     st.caption(f"'{foco}' no tiene serie propia en la base de migración desde 2023 "
                "(queda dentro de una agrupación): se muestra el total.")
@@ -330,40 +353,37 @@ fig.add_vrect(x0=ini, x1=fin + pd.offsets.MonthEnd(0), fillcolor=PALETA["primari
 fig.add_vline(x=pd.Timestamp("2023-01-01").timestamp() * 1000, line_dash="dot", line_color=PALETA["neutro"],
               annotation_text="Quiebre metodológico", annotation_position="bottom right",
               annotation_font=dict(size=11, color=PALETA["neutro"]))
-estilo(fig, 340, y="Visitantes por mes", leyenda=False)
+estilo(fig, ALTURA_GRANDE, y="Visitantes por mes", leyenda=False)
+titulo_grafico(fig, f"Entran {serie.mean():,.0f} visitantes al mes por estas fronteras ({etiqueta_mig})")
 st.plotly_chart(fig, width="stretch")
 
 per = serie[(serie.index >= ini) & (serie.index <= fin)].dropna()
-m1, m2, m3 = st.columns(3)
-with m1:
-    kpi("Visitantes / mes en el período", f"{per.mean():,.0f}" if len(per) else "Sin dato",
-        help="Migración, fronteras alimentadoras. Datos hasta jun-2026.")
-with m2:
-    # Comparación mes a mes: solo meses con dato en ambos años (sin rellenar huecos)
-    previo = serie.reindex(per.index - pd.DateOffset(years=1))
-    ok = previo.notna().to_numpy()
-    var = per[ok].sum() / previo[ok].sum() - 1 if ok.any() and previo[ok].sum() else np.nan
-    kpi("Variación interanual", f"{var:+.1%}" if not np.isnan(var) else "No comparable",
-        help="Suma de los meses del período vs. los mismos meses del año previo "
-             "(solo meses con dato en ambos). Ojo: cruzar 2022→2023 mezcla el quiebre metodológico.")
-with m3:
-    kpi("Meses con dato en el período", f"{len(per)}")
+previo = serie.reindex(per.index - pd.DateOffset(years=1))
+ok = previo.notna().to_numpy()
+var = per[ok].sum() / previo[ok].sum() - 1 if ok.any() and previo[ok].sum() else np.nan
+st.markdown(
+    f'<div style="font-size:0.85rem;color:{PALETA["neutro"]};margin-top:-4px;">'
+    f"**{per.mean():,.0f}** visitantes/mes en el período · "
+    f"variación interanual **{'n/c' if np.isnan(var) else f'{var:+.1%}'}** · "
+    f"**{len(per)}** meses con dato"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
-# ---------------------------------------------------------------------------
-# 6. Contexto histórico marítimo (2009-2016)
-# ---------------------------------------------------------------------------
-with st.expander("📜 Serie histórica de visitantes por las fronteras marítimas de Izabal (2009–2016)"):
+with st.expander("📜 Serie histórica de visitantes por las fronteras marítimas de Izabal (2009–2016)",
+                 expanded=False):
     dm = get("destination_monthly")
     h = dm.groupby("fecha")["viajeros"].sum()
     h = h.reindex(pd.date_range(h.index.min(), "2026-06-01", freq="MS"))
-    fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines", line=dict(color=PALETA["info"], width=2),
+    fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines",
+                               line=dict(color=PALETA["info"], width=2),
                                hovertemplate="%{x|%b %Y}<br>%{y:,.0f}<extra></extra>"))
-    estilo(fig, 280, y="Visitantes por mes", leyenda=False)
+    estilo(fig, ALTURA, y="Visitantes por mes", leyenda=False)
     st.plotly_chart(fig, width="stretch")
     advertencia(
         "Puerto Barrios, Livingston y Santo Tomás solo registran visitantes (turista/excursionista) "
-        "entre 2009 y 2016; en 2022 no hay ninguna fila y desde 2023 solo se registra 'Viajero' (tránsito). "
-        "El vacío posterior es falta de registro, no ausencia de visitantes."
+        "entre 2009 y 2016; en 2022 no hay ninguna fila y desde 2023 solo se registra 'Viajero' "
+        "(tránsito). El vacío posterior es falta de registro, no ausencia de visitantes."
     )
     nt = get("nationality_top")
     st.dataframe(nt.rename(columns={"viajeros": "visitantes 2009–2016"}), hide_index=True, width="stretch")

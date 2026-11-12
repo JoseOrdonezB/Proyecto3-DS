@@ -341,8 +341,9 @@ recomendaciones del módulo.**
 | Archivo | Cambios |
 |---|---|
 | `app/components/kpis.py` | + `kpi_estimacion`, `estilo_estimacion`, `leyenda_paleta`, `badge_tipo_dato` (Observado / Muestral / Estimación) |
-| `app/components/theme.py` | **NUEVO** — paleta documentada + reglas de uso |
-| `app/components/charts.py` | **NUEVO** — helpers de gráficos (patrón de línea por serie, formato %, tratamiento de estimación) |
+| `app/components/theme.py` | **NUEVO** — paleta documentada + reglas de uso + constantes de ritmo de presentación |
+| `app/components/layout.py` | **NUEVO** — armazón de presentación común: `modulo()`, `kpis()`, `seccion()`, `insight()`, `caveat()`, `bloque()`, `detalle()` |
+| `app/components/charts.py` | **NUEVO** — helpers de gráficos (patrón de línea por serie, formato %, tratamiento de estimación, `titulo_grafico()`) |
 | `app/components/data.py` | + `get_optional` (no rompe si falta un dataset) |
 | `app/app.py` | **Reescritura** — narrativa del observatorio, storyline, resumen de hallazgos, tarjetas de fuentes, enlace a docs |
 | `app/pages/1_monitor_demanda.py` | **Reescritura** — KPIs (visitantes/mes, días-persona, estadía ponderada), segmentación, top nacionalidades, visualización enlazada |
@@ -377,6 +378,7 @@ recomendaciones del módulo.**
 | `test_holidays.py` | Calendario sin solapes ni fechas inválidas; lift calculado sobre días válidos |
 | `test_rules_extended.py` | Reglas 1–6 ampliadas (días-persona, patrón semanal normalizado, estimación no contada como observado) |
 | `test_dashboard_smoke.py` | Cada página del dashboard renderiza sin errores y sus selectores no la rompen |
+| `test_diseno.py` | Reglas de presentación: ≤ 5 secciones por módulo, una fila de KPI, alturas de gráfico estándar, titulares como afirmaciones |
 
 ---
 
@@ -430,9 +432,42 @@ caso de daltonismo (protanopía / deuteranopía / tritanopía). Cumple el umbral
 
 ---
 
-## 7. Memoria técnica (entregable formal, 15%)
+### 6.4 Sistema de presentación (armazón común a los 4 módulos)
 
-Estructura exigida por la guía, mapeada a los archivos del repo:
+Un observatorio se presenta en pantalla. El contenido acumulado hace que la
+página se vuelva ilegible y la historia se pierda, así que el diseño se
+normaliza en `app/components/layout.py` y **las reglas se verifican con tests**
+(`tests/test_diseno.py`).
+
+**Reglas duras:**
+
+| Regla | Límite |
+|---|---|
+| Secciones visibles por módulo | **≤ 5** |
+| Filas de tarjetas KPI por módulo | **1** (máx. 4 tarjetas) |
+| Alturas de gráfico | solo **300 / 380 / 440 px** (`ALTURA`, `ALTURA_GRANDE`, `ALTURA_ALTA`) |
+| Gráficos por sección | ≤ 2 visibles; el resto en `st.expander` de detalle |
+| Título de sección | es una **afirmación con la cifra dentro**, nunca una pregunta |
+| Título de gráfico | es la **conclusión** de lo que se ve |
+
+**Piezas del armazón:**
+
+| Función | Qué hace |
+|---|---|
+| `modulo(titulo, pregunta, afirmacion)` | Cabecera: título + pregunta de gestión + la conclusión del módulo en negrita |
+| `kpis(items)` | Fila de tarjetas KPI con borde de acento (estilo propio, no `st.metric`) |
+| `seccion(afirmacion, subtitulo, badge)` | Separador con el titular como afirmación y badge del tipo de dato |
+| `insight(texto)` | Línea de lectura del gráfico: lo que hay que retener (barra de color a la izquierda) |
+| `caveat(texto)` | Advertencia de método, en el color de alerta |
+| `titulo_grafico(fig, afirmacion, subtitulo)` | Título del gráfico como afirmación |
+
+**Scroll, no tabs:** la historia se lee de arriba abajo y el contenido
+secundario se colapsa en `st.expander`. Es lo que permite que un módulo se
+recorra en 3–4 pantallas.
+
+---
+
+## 7. Memoria técnica (entregable formal, 15%)Estructura exigida por la guía, mapeada a los archivos del repo:
 
 | Sección de la guía | Dónde vive |
 |---|---|
