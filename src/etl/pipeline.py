@@ -60,6 +60,20 @@ def run(save: bool = True, output_dir: Path | str | None = None) -> dict:
         "survey_lodging.parquet": t.survey_lodging(sur),
         "survey_transport.parquet": t.survey_transport(sur),
         "survey_residence.parquet": t.survey_residence(sur),
+        # Fase 2 · transformaciones transversales
+        "survey_segment.parquet": t.survey_segment_tourist_excursionist(sur),
+        "survey_days_person_monthly.parquet": t.survey_days_person_monthly(sur),
+        "survey_izabal_cube.parquet": t.survey_izabal_cube(sur),
+        "survey_weekly_pattern.parquet": t.survey_weekly_pattern(sur),
+        "survey_holiday_lift.parquet": t.survey_holiday_lift(sur),
+        "survey_border_migration.parquet": t.survey_border_migration(sur, mig),
+        "survey_transfer_rate.parquet": t.survey_transfer_rate(sur, mig),
+        "corridor_funnel_matrix.parquet": t.corridor_funnel_matrix(mig),
+        "migration_seasonal_index.parquet": t.migration_seasonal_index(mig),
+        "occupancy_vs_affluence.parquet": t.occupancy_vs_affluence(occ, sur, mig),
+        "occupancy_departments.parquet": occ[["fecha", "departamento", "indice_ocupacion"]]
+        .sort_values(["departamento", "fecha"])
+        .reset_index(drop=True),
         # Calidad de datos (limitaciones documentadas)
         "data_quality.parquet": t.data_quality(mig, sur),
     }

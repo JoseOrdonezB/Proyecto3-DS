@@ -7,10 +7,14 @@ def test_visitor_definition(outputs):
     assert set(dm["Tipo de Viajero"].unique()).issubset({"Turista", "Excursionista"})
 
 
+# Columnas que por definición pueden ser negativas (variación % frente a una base)
+COLUMNAS_CON_SIGNO = {"lift_registros_pct", "lift_visitantes_pct"}
+
+
 def test_no_negative_values(outputs):
     for nombre, df in outputs.items():
-        numericos = df.select_dtypes("number")
-        assert (numericos >= 0).all().all(), nombre
+        numericos = df.select_dtypes("number").drop(columns=list(COLUMNAS_CON_SIGNO), errors="ignore")
+        assert (numericos.fillna(0) >= 0).all().all(), nombre
 
 
 def test_occupancy_range(outputs):

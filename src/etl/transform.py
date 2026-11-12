@@ -3,10 +3,18 @@
 Todas las funciones reciben DataFrames ya limpiados (src.etl.clean).
 """
 
+import numpy as np
 import pandas as pd
 
-from src.config import CORRIDOR_BORDERS, DESTINATION_DEPT, IZABAL_BORDERS
-from src.utils.helpers import safe_div
+from src.config import (
+    CORRIDOR_BORDERS,
+    DESTINATION_DEPT,
+    IZABAL_BORDERS,
+    SURVEY_BORDER_MAP,
+    VENTANA_COINCIDENTE,
+    VISITOR_TYPES,
+)
+from src.utils.helpers import mapa_frontera, safe_div
 
 
 # ---------------------------------------------------------------------------
@@ -253,17 +261,450 @@ def survey_residence(df: pd.DataFrame) -> pd.DataFrame:
     return tabla
 
 
-def data_quality(mig: pd.DataFrame, sur: pd.DataFrame) -> pd.DataFrame:
-    """Resumen de cobertura y huecos para documentar limitaciones.
 
-    Documenta el hallazgo crítico: los datos marítimos de visitantes
-    (Turista/Excursionista) solo cubren 2009-2016; desde 2023 solo
-    existen registros de 'Viajero' (tránsito) en las fronteras de Izabal.
+
+# ---------------------------------------------------------------------------
+# Utilidades internas (Fase 2)
+# ---------------------------------------------------------------------------
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+SEGMENTOS = ["Turista", "Excursionista"]
+
+
+def _mes(fechas: pd.Series) -> pd.Series:
+    """Fecha -> primer día del mes."""
+    return pd.to_datetime(fechas).dt.to_period("M").dt.to_timestamp()
+
+
+def _rango_mensual(inicio, fin) -> pd.DatetimeIndex:
+    ini = pd.Timestamp(inicio).to_period("M").to_timestamp()
+    fin = pd.Timestamp(fin).to_period("M").to_timestamp()
+    return pd.date_range(ini, fin, freq="MS", name="fecha")
+
+
+def _con_segmento(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega 'segmento' (Turista = pernocta > 24 h; Excursionista = < 24 h) y 'mes'."""
+    out = df.copy()
+    out["segmento"] = np.where(out["es_pernocta"], "Turista", "Excursionista")
+    out["mes"] = _mes(out["fecha"])
+    # Días-persona solo con noches válidas (regla 2: nunca se promedia la permanencia)
+    valido = out["es_pernocta"] & out["noches_validadas"].notna()
+    out["visitantes_pernocta"] = out["total_visitantes"].where(valido, 0.0)
+    out["dias_persona"] = (out["noches_validadas"] * out["total_visitantes"]).where(valido, 0.0)
+    return out
+
+
+def _rangos_texto(meses) -> str:
+    """Comprime una lista de meses en rangos legibles: '2017-01→2022-12, 2025-01'."""
+    meses = sorted(pd.to_datetime(list(meses)))
+    if not meses:
+        return ""
+    tramos, ini, prev = [], meses[0], meses[0]
+    for m in meses[1:]:
+        if m == prev + pd.offsets.MonthBegin(1):
+            prev = m
+            continue
+        tramos.append((ini, prev))
+        ini = prev = m
+    tramos.append((ini, prev))
+    return ", ".join(
+        a.strftime("%Y-%m") if a == b else f"{a:%Y-%m}→{b:%Y-%m}" for a, b in tramos
+    )
+
+
+def _izabal_diaria_activa(df: pd.DataFrame) -> pd.DataFrame:
+    """Serie diaria de Izabal sobre los días en que la encuesta operó.
+
+    Un día con operativo de encuesta (cualquier destino) pero sin registros de
+    Izabal es un cero observado. Un día sin operativo no existe en la serie
+    (regla 1: la ausencia de dato no es cero).
+    """
+    activos = pd.DatetimeIndex(pd.to_datetime(df["fecha"]).dt.normalize().unique()).sort_values()
+    iz = df[df["es_izabal"]]
+    diaria = (
+        iz.groupby(pd.to_datetime(iz["fecha"]).dt.normalize())
+        .agg(registros=("id_unico", "count"), visitantes=("total_visitantes", "sum"))
+        .reindex(activos, fill_value=0)
+    )
+    diaria.index.name = "fecha"
+    diaria = diaria.reset_index()
+    # Solo dentro del período en que Izabal tiene cobertura
+    if not iz.empty:
+        ini, fin = iz["fecha"].min(), iz["fecha"].max()
+        diaria = diaria[diaria["fecha"].between(ini, fin)]
+    return diaria.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Módulo 1 · Demanda y mercados emisores
+# ---------------------------------------------------------------------------
+def survey_segment_tourist_excursionist(df: pd.DataFrame) -> pd.DataFrame:
+    """Segmentación mensual turista vs excursionista en Izabal (absolutos muestrales y %).
+
+    Meses sin ninguna fila de encuesta (p. ej. 2025-01) quedan en NaN; un mes con
+    encuestas pero sin excursionistas es un 0 observado.
+    """
+    iz = _con_segmento(df[df["es_izabal"]])
+    if iz.empty:
+        return pd.DataFrame(columns=["fecha", "segmento", "registros", "visitantes",
+                                     "participacion_registros", "participacion_visitantes"])
+    g = iz.groupby(["mes", "segmento"]).agg(
+        registros=("id_unico", "count"), visitantes=("total_visitantes", "sum")
+    )
+    rango = _rango_mensual(iz["mes"].min(), iz["mes"].max())
+    idx = pd.MultiIndex.from_product([rango, SEGMENTOS], names=["fecha", "segmento"])
+    g.index.names = ["fecha", "segmento"]
+    g = g.reindex(idx)
+    con_dato = set(iz["mes"])
+    observado = g.index.get_level_values("fecha").isin(list(con_dato))
+    g.loc[observado] = g.loc[observado].fillna(0)
+    g = g.reset_index()
+    tot = g.groupby("fecha")[["registros", "visitantes"]].transform(lambda x: x.sum(min_count=1))
+    g["participacion_registros"] = g["registros"] / tot["registros"].replace(0, np.nan)
+    g["participacion_visitantes"] = g["visitantes"] / tot["visitantes"].replace(0, np.nan)
+    return g
+
+
+def survey_days_person_monthly(df: pd.DataFrame) -> pd.DataFrame:
+    """Días-persona y estadía media ponderada por mes (Izabal, muestral).
+
+    estadia_ponderada = suma(días-persona) / suma(visitantes pernocta)  (regla 2).
+    Meses sin encuesta -> NaN.
+    """
+    iz = _con_segmento(df[df["es_izabal"]])
+    cols = ["fecha", "registros", "visitantes", "visitantes_pernocta",
+            "visitantes_excursionistas", "dias_persona", "estadia_ponderada",
+            "proporcion_pernocta"]
+    if iz.empty:
+        return pd.DataFrame(columns=cols)
+    iz["visitantes_excursion"] = iz["total_visitantes"].where(~iz["es_pernocta"], 0.0)
+    g = iz.groupby("mes").agg(
+        registros=("id_unico", "count"),
+        visitantes=("total_visitantes", "sum"),
+        visitantes_pernocta=("visitantes_pernocta", "sum"),
+        visitantes_excursionistas=("visitantes_excursion", "sum"),
+        dias_persona=("dias_persona", "sum"),
+    )
+    g = g.reindex(_rango_mensual(iz["mes"].min(), iz["mes"].max()))
+    g["estadia_ponderada"] = g["dias_persona"] / g["visitantes_pernocta"].replace(0, np.nan)
+    g["proporcion_pernocta"] = g["visitantes_pernocta"] / (
+        g["visitantes_pernocta"] + g["visitantes_excursionistas"]
+    ).replace(0, np.nan)
+    g.index.name = "fecha"
+    return g.reset_index()[cols]
+
+
+def survey_izabal_cube(df: pd.DataFrame) -> pd.DataFrame:
+    """Cubo muestral de Izabal para filtros enlazados del dashboard.
+
+    Una fila por combinación (mes, segmento, nacionalidad, residencia, frontera,
+    hospedaje, transporte, subdestino) con medidas aditivas: registros,
+    visitantes, visitantes_pernocta y días-persona. Las razones (%, estadía) se
+    recalculan en el dashboard sobre el subconjunto filtrado, nunca se promedian.
+    """
+    iz = _con_segmento(df[df["es_izabal"]])
+    dims = ["mes", "segmento", "nacionalidad", "residencia", "frontera_nombre",
+            "hospedaje", "tipo_transporte", "subdestino"]
+    g = (
+        iz.groupby(dims, as_index=False)
+        .agg(
+            registros=("id_unico", "count"),
+            visitantes=("total_visitantes", "sum"),
+            visitantes_pernocta=("visitantes_pernocta", "sum"),
+            dias_persona=("dias_persona", "sum"),
+        )
+        .rename(columns={"mes": "fecha"})
+    )
+    g["frontera_migracion"] = mapa_frontera(g["frontera_nombre"])
+    return g.sort_values(["fecha", "registros"], ascending=[True, False]).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Módulo 2 · Patrón semanal y efecto de feriados
+# ---------------------------------------------------------------------------
+def survey_weekly_pattern(df: pd.DataFrame) -> pd.DataFrame:
+    """Patrón semanal NORMALIZADO de Izabal (promedio por día, no suma bruta).
+
+    indice = promedio del día de la semana / promedio de todos los días activos.
+    Un índice de 1.20 significa 20 % más registros que un día típico.
+    """
+    d = _izabal_diaria_activa(df)
+    d["dia_num"] = d["fecha"].dt.dayofweek
+    media_reg, media_vis = d["registros"].mean(), d["visitantes"].mean()
+    g = d.groupby("dia_num").agg(
+        n_dias=("fecha", "count"),
+        registros_promedio=("registros", "mean"),
+        visitantes_promedio=("visitantes", "mean"),
+    ).reindex(range(7))
+    g["dia_semana"] = DIAS_SEMANA
+    g["indice_registros"] = g["registros_promedio"] / media_reg if media_reg else np.nan
+    g["indice_visitantes"] = g["visitantes_promedio"] / media_vis if media_vis else np.nan
+    return g.reset_index()[["dia_num", "dia_semana", "n_dias", "registros_promedio",
+                            "visitantes_promedio", "indice_registros", "indice_visitantes"]]
+
+
+def survey_holiday_lift(df: pd.DataFrame) -> pd.DataFrame:
+    """Lift % de cada feriado/evento frente al día regular promedio (Izabal).
+
+    Base: días con operativo de encuesta. Día regular = ni feriado ni evento.
+    lift_pct = (promedio en el evento / promedio en día regular - 1) * 100.
+    Se reporta para el período completo (anio = 'Todos') y por año, comparando
+    contra los días regulares del mismo año (el volumen muestral cambia por año).
+    """
+    from src.analysis.feriados import calendario
+
+    d = _izabal_diaria_activa(df)
+    cal = calendario()
+    especiales = set(cal["fecha"])
+    d["regular"] = ~d["fecha"].isin(especiales)
+
+    eventos = cal.merge(d, on="fecha", how="inner")
+    # Navidad-Año Nuevo: el 1 de enero pertenece a la temporada del año anterior
+    eventos["anio"] = eventos["fecha"].dt.year - (
+        eventos["nombre"].eq("Navidad y Año Nuevo") & eventos["fecha"].dt.month.eq(1)
+    ).astype(int)
+    d["anio"] = d["fecha"].dt.year
+
+    filas = []
+    for periodo in ["Todos"] + sorted(eventos["anio"].unique().tolist()):
+        if periodo == "Todos":
+            ev, reg = eventos, d[d["regular"]]
+        else:
+            ev = eventos[eventos["anio"].eq(periodo)]
+            reg = d[d["regular"] & d["anio"].eq(periodo)]
+        if reg.empty:
+            continue
+        base_r, base_v = reg["registros"].mean(), reg["visitantes"].mean()
+        for (nombre, tipo), e in ev.groupby(["nombre", "tipo"]):
+            prom_r, prom_v = e["registros"].mean(), e["visitantes"].mean()
+            filas.append(
+                {
+                    "anio": str(periodo),
+                    "nombre": nombre,
+                    "tipo": tipo,
+                    "n_dias": int(len(e)),
+                    "n_dias_regulares": int(len(reg)),
+                    "registros_promedio": prom_r,
+                    "visitantes_promedio": prom_v,
+                    "regular_registros_promedio": base_r,
+                    "regular_visitantes_promedio": base_v,
+                    "lift_registros_pct": (prom_r / base_r - 1) * 100 if base_r else np.nan,
+                    "lift_visitantes_pct": (prom_v / base_v - 1) * 100 if base_v else np.nan,
+                }
+            )
+    return pd.DataFrame(filas)
+
+
+# ---------------------------------------------------------------------------
+# Módulo 4 · Cruce encuesta ↔ migración por frontera
+# ---------------------------------------------------------------------------
+def _migracion_por_frontera_mes(mig: pd.DataFrame) -> pd.DataFrame:
+    m = mig.assign(
+        visitantes=mig["Viajero"].where(mig["Tipo de Viajero"].isin(VISITOR_TYPES), 0.0),
+        transito=mig["Viajero"].where(mig["Tipo de Viajero"].eq("Viajero"), 0.0),
+    )
+    return (
+        m.groupby(["fecha", "Frontera"], as_index=False)
+        .agg(migracion_visitantes=("visitantes", "sum"), migracion_transito=("transito", "sum"))
+    )
+
+
+def survey_border_migration(sur: pd.DataFrame, mig: pd.DataFrame) -> pd.DataFrame:
+    """Cruce mensual por frontera: encuesta (muestral) + migración (absoluto).
+
+    Solo fronteras con equivalencia 1:1 (SURVEY_BORDER_MAP). Meses en que la
+    encuesta no operó en esa frontera no aparecen (no son cero).
+    """
+    s = sur.assign(mes=_mes(sur["fecha"]))
+    s["frontera_migracion"] = mapa_frontera(s["frontera_nombre"])
+    s = s[s["frontera_migracion"].notna()]
+    s["vis_iz"] = s["total_visitantes"].where(s["es_izabal"], 0.0)
+    enc = s.groupby(["mes", "frontera_nombre", "frontera_migracion"], as_index=False).agg(
+        registros_total=("id_unico", "count"),
+        registros_izabal=("es_izabal", "sum"),
+        visitantes_total=("total_visitantes", "sum"),
+        visitantes_izabal=("vis_iz", "sum"),
+    )
+    enc = enc.rename(columns={"mes": "fecha"})
+    mm = _migracion_por_frontera_mes(mig).rename(columns={"Frontera": "frontera_migracion"})
+    out = enc.merge(mm, on=["fecha", "frontera_migracion"], how="left")
+    out["registros_izabal"] = out["registros_izabal"].astype(int)
+    return out.sort_values(["fecha", "frontera_nombre"]).reset_index(drop=True)
+
+
+def _wilson(k, n, z: float = 1.96):
+    k, n = np.asarray(k, dtype=float), np.asarray(n, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        p = k / n
+        den = 1 + z**2 / n
+        centro = (p + z**2 / (2 * n)) / den
+        margen = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / den
+    return np.clip(centro - margen, 0, 1), np.clip(centro + margen, 0, 1)
+
+
+def survey_transfer_rate(sur: pd.DataFrame, mig: pd.DataFrame) -> pd.DataFrame:
+    """Tasa de transferencia por frontera de entrada hacia Izabal/Caribe.
+
+    tasa_transferencia = visitantes encuestados con destino Izabal en la frontera b
+                         / visitantes encuestados en la frontera b      (∈ [0, 1])
+
+    Es una proporción MUESTRAL (regla 6: no se multiplica por la migración para
+    obtener totales). La migración del mismo período (solo meses en que la
+    encuesta operó en b) se adjunta como contexto absoluto, en dos versiones:
+    visitantes (Turista+Excursionista) y tránsito (Viajero).
+    Incluye IC 95 % de Wilson sobre registros. anio = 'Todos' o el año.
+    """
+    bm = survey_border_migration(sur, mig)
+    bm["anio"] = bm["fecha"].dt.year
+    filas = []
+    for periodo in ["Todos"] + sorted(bm["anio"].unique().tolist()):
+        sub = bm if periodo == "Todos" else bm[bm["anio"].eq(periodo)]
+        g = sub.groupby(["frontera_nombre", "frontera_migracion"], as_index=False).agg(
+            meses_encuesta=("fecha", "nunique"),
+            registros_total=("registros_total", "sum"),
+            registros_izabal=("registros_izabal", "sum"),
+            visitantes_total=("visitantes_total", "sum"),
+            visitantes_izabal=("visitantes_izabal", "sum"),
+            migracion_visitantes=("migracion_visitantes", "sum"),
+            migracion_transito=("migracion_transito", "sum"),
+        )
+        g = g[g["registros_total"] > 0]
+        g.insert(0, "anio", str(periodo))
+        filas.append(g)
+    out = pd.concat(filas, ignore_index=True)
+    out["tasa_transferencia"] = out["visitantes_izabal"] / out["visitantes_total"]
+    out["tasa_registros"] = out["registros_izabal"] / out["registros_total"]
+    out["ic_inf"], out["ic_sup"] = _wilson(out["registros_izabal"], out["registros_total"])
+    tot_iz = out.groupby("anio")["registros_izabal"].transform("sum").replace(0, np.nan)
+    out["peso_en_izabal"] = out["registros_izabal"] / tot_iz
+    return out.sort_values(["anio", "tasa_transferencia"], ascending=[True, False]).reset_index(drop=True)
+
+
+def corridor_funnel_matrix(mig: pd.DataFrame) -> pd.DataFrame:
+    """Matriz corredor × mes × tipo de flujo (formato largo).
+
+    tipo_flujo ∈ {Visitantes, Tránsito, Cruceristas}. Las celdas sin registro
+    quedan en NaN (no cero): permite ver la discontinuidad marítima 2017-2022.
+    """
+    rango = _rango_mensual(mig["fecha"].min(), mig["fecha"].max())
+    c = mig[mig["Frontera"].isin(CORRIDOR_BORDERS)].copy()
+    c["tipo_flujo"] = np.select(
+        [c["Tipo de Viajero"].isin(VISITOR_TYPES), c["Tipo de Viajero"].eq("Viajero"),
+         c["Tipo de Viajero"].eq("Cruceristas")],
+        ["Visitantes", "Tránsito", "Cruceristas"],
+        default="Otro",
+    )
+    g = c.groupby(["fecha", "Frontera", "tipo_flujo"])["Viajero"].sum()
+    idx = pd.MultiIndex.from_product(
+        [rango, CORRIDOR_BORDERS, ["Visitantes", "Tránsito", "Cruceristas"]],
+        names=["fecha", "Frontera", "tipo_flujo"],
+    )
+    out = g.reindex(idx).rename("viajeros").reset_index()
+    out["es_izabal"] = out["Frontera"].isin(IZABAL_BORDERS)
+    return out
+
+
+def migration_seasonal_index(mig: pd.DataFrame, desde: int = 2023, hasta: int = 2025) -> pd.DataFrame:
+    """Perfil estacional por frontera: índice del mes = valor / promedio mensual del año.
+
+    Se promedia el índice entre años COMPLETOS (12 meses con dato) del rango
+    [desde, hasta]; por defecto 2023-2025 (posterior al quiebre 2022→2023).
+    Incluye el agregado 'Alimentadoras de Izabal' (11 fronteras mapeadas).
+    """
+    mm = _migracion_por_frontera_mes(mig)
+    alim = (
+        mm[mm["Frontera"].isin(SURVEY_BORDER_MAP.values())]
+        .groupby("fecha", as_index=False)[["migracion_visitantes", "migracion_transito"]].sum()
+        .assign(Frontera="Alimentadoras de Izabal")
+    )
+    mm = pd.concat([mm, alim], ignore_index=True)
+    mm = mm[mm["fecha"].dt.year.between(desde, hasta)]
+    filas = []
+    for tipo, col in [("Visitantes", "migracion_visitantes"), ("Tránsito", "migracion_transito")]:
+        x = mm[["fecha", "Frontera", col]].rename(columns={col: "valor"})
+        x = x[x["valor"] > 0]
+        x["anio"], x["mes"] = x["fecha"].dt.year, x["fecha"].dt.month
+        completos = x.groupby(["Frontera", "anio"])["mes"].transform("nunique").eq(12)
+        x = x[completos]
+        if x.empty:
+            continue
+        x["indice"] = x["valor"] / x.groupby(["Frontera", "anio"])["valor"].transform("mean")
+        g = x.groupby(["Frontera", "mes"], as_index=False).agg(
+            indice=("indice", "mean"), n_anios=("anio", "nunique")
+        )
+        g.insert(1, "tipo_flujo", tipo)
+        filas.append(g)
+    return pd.concat(filas, ignore_index=True) if filas else pd.DataFrame(
+        columns=["Frontera", "tipo_flujo", "mes", "indice", "n_anios"])
+
+
+# ---------------------------------------------------------------------------
+# Módulo 3 · Ventana coincidente afluencia ↔ ocupación
+# ---------------------------------------------------------------------------
+def occupancy_vs_affluence(occ: pd.DataFrame, sur: pd.DataFrame, mig: pd.DataFrame) -> pd.DataFrame:
+    """Cruce mensual de ocupación hotelera de Izabal con medidas de afluencia.
+
+    Rango: meses de la serie de ocupación (2023-2025). Columnas de afluencia:
+      - registros/visitantes de la encuesta en Izabal (muestral)
+      - participacion_izabal_encuesta: % de los registros del mes que van a Izabal
+        (controla el tamaño variable de la muestra)
+      - proporcion_pernocta y estadia_ponderada (muestral)
+      - migracion_alimentadoras: visitantes absolutos por las 11 fronteras mapeadas
+      - transito_izabal: 'Viajero' en las fronteras marítimas de Izabal
+    en_ventana marca la ventana coincidente (VENTANA_COINCIDENTE).
+    """
+    o = occ.copy()
+    o["fecha"] = _mes(o["fecha"])
+    iz = o[o["departamento"].eq(DESTINATION_DEPT)].set_index("fecha")["indice_ocupacion"]
+    nac = o.groupby("fecha")["indice_ocupacion"].mean()
+    rango = _rango_mensual(o["fecha"].min(), o["fecha"].max())
+
+    dp = survey_days_person_monthly(sur).set_index("fecha")
+    s = sur.assign(mes=_mes(sur["fecha"]))
+    total_mes = s.groupby("mes")["id_unico"].count()
+
+    mm = _migracion_por_frontera_mes(mig)
+    alim = mm[mm["Frontera"].isin(SURVEY_BORDER_MAP.values())].groupby("fecha")["migracion_visitantes"].sum()
+    trans = mm[mm["Frontera"].isin(IZABAL_BORDERS)].groupby("fecha")["migracion_transito"].sum()
+    # Meses sin registro de tránsito en Izabal -> NaN (no cero)
+    trans = trans[trans > 0]
+
+    out = pd.DataFrame(index=rango)
+    out["ocupacion"] = iz.reindex(rango)
+    out["ocupacion_promedio_departamental"] = nac.reindex(rango)
+    out["registros_encuesta"] = dp["registros"].reindex(rango)
+    out["visitantes_encuesta"] = dp["visitantes"].reindex(rango)
+    out["participacion_izabal_encuesta"] = (dp["registros"] / total_mes).reindex(rango)
+    out["proporcion_pernocta"] = dp["proporcion_pernocta"].reindex(rango)
+    out["estadia_ponderada"] = dp["estadia_ponderada"].reindex(rango)
+    out["migracion_alimentadoras"] = alim.reindex(rango)
+    out["transito_izabal"] = trans.reindex(rango)
+    ini, fin = pd.Timestamp(VENTANA_COINCIDENTE[0]), pd.Timestamp(VENTANA_COINCIDENTE[1])
+    out["en_ventana"] = (out.index >= ini) & (out.index <= fin)
+    out.index.name = "fecha"
+    return out.reset_index()
+
+
+# ---------------------------------------------------------------------------
+# Calidad de datos
+# ---------------------------------------------------------------------------
+def data_quality(mig: pd.DataFrame, sur: pd.DataFrame) -> pd.DataFrame:
+    """Resumen de cobertura, huecos y notas para documentar limitaciones.
+
+    Además del resumen por frontera / destino, agrega filas explícitas
+    (fuente = 'hueco' o 'nota') con:
+      - el hueco 2022 de visitantes en las fronteras marítimas de Izabal,
+      - el hueco 2025-01 de la encuesta de Izabal/Caribe,
+      - decimales en 'Viajero' (estimaciones expandidas, no conteos exactos),
+      - cobertura parcial de 2026 y el quiebre metodológico 2022→2023.
+    'huecos_visitantes' lista los meses sin visitantes dentro del rango de cada segmento.
     """
     filas = []
 
     for frontera in sorted(mig["Frontera"].unique()):
         s = mig[mig["Frontera"].eq(frontera)]
+        rango = _rango_mensual(s["fecha"].min(), s["fecha"].max())
+        con_vis = set(s.loc[s["es_visita"], "fecha"])
+        faltan = [m for m in rango if m not in con_vis]
         filas.append(
             {
                 "fuente": "migracion",
@@ -271,25 +712,84 @@ def data_quality(mig: pd.DataFrame, sur: pd.DataFrame) -> pd.DataFrame:
                 "fecha_min": s["fecha"].min().date(),
                 "fecha_max": s["fecha"].max().date(),
                 "meses_con_datos": s["fecha"].nunique(),
-                "meses_con_visitantes": s.loc[s["es_visita"], "fecha"].nunique(),
+                "meses_con_visitantes": len(con_vis),
                 "meses_con_transito": s.loc[s["Tipo de Viajero"].eq("Viajero"), "fecha"].nunique(),
                 "meses_con_cruceros": s.loc[s["Tipo de Viajero"].eq("Cruceristas"), "fecha"].nunique(),
+                "huecos_visitantes": _rangos_texto(faltan),
+                "detalle": "",
             }
         )
 
-    for destino in sorted(sur["nuevo_destino"].unique()):
-        s = sur[sur["nuevo_destino"].eq(destino)]
+    s_mes = sur.assign(mes=_mes(sur["fecha"]))
+    for destino in sorted(s_mes["nuevo_destino"].unique()):
+        s = s_mes[s_mes["nuevo_destino"].eq(destino)]
+        rango = _rango_mensual(s["mes"].min(), s["mes"].max())
+        con = set(s["mes"])
+        faltan = [m for m in rango if m not in con]
         filas.append(
             {
                 "fuente": "encuesta",
                 "segmento": destino,
                 "fecha_min": s["fecha"].min().date(),
                 "fecha_max": s["fecha"].max().date(),
-                "meses_con_datos": s["fecha"].nunique(),
-                "meses_con_visitantes": s["fecha"].nunique(),
+                "meses_con_datos": len(con),
+                "meses_con_visitantes": len(con),
                 "meses_con_transito": 0,
                 "meses_con_cruceros": 0,
+                "huecos_visitantes": _rangos_texto(faltan),
+                "detalle": f"{s['fecha'].nunique()} días con registros",
             }
         )
 
-    return pd.DataFrame(filas)
+    extra = []
+    # Hueco 2022: fronteras marítimas de Izabal sin ninguna fila
+    m22 = mig[mig["Frontera"].isin(IZABAL_BORDERS) & mig["fecha"].dt.year.eq(2022)]
+    if m22.empty:
+        extra.append({
+            "fuente": "hueco", "segmento": "Fronteras marítimas de Izabal (visitantes)",
+            "fecha_min": pd.Timestamp("2022-01-01").date(), "fecha_max": pd.Timestamp("2022-12-01").date(),
+            "huecos_visitantes": "2022-01→2022-12",
+            "detalle": "0 filas en 2022 para " + ", ".join(IZABAL_BORDERS)
+            + ". Los visitantes (Turista+Excursionista) solo existen 2009-2016; desde 2023 solo 'Viajero'.",
+        })
+    # Hueco 2025-01 (y cualquier otro) en la encuesta de Izabal/Caribe
+    iz = s_mes[s_mes["es_izabal"]]
+    if not iz.empty:
+        rango = _rango_mensual(iz["mes"].min(), iz["mes"].max())
+        faltan = [m for m in rango if m not in set(iz["mes"])]
+        for m in faltan:
+            extra.append({
+                "fuente": "hueco", "segmento": "Encuesta Izabal/Caribe",
+                "fecha_min": m.date(), "fecha_max": (m + pd.offsets.MonthEnd(0)).date(),
+                "huecos_visitantes": m.strftime("%Y-%m"),
+                "detalle": "Mes sin ninguna fila de encuesta para Izabal/Caribe: se trata como "
+                "sin dato (NaN), nunca como cero; se estima en el Módulo 2.",
+            })
+    # Decimales en 'Viajero'
+    dec = mig[(mig["Viajero"] % 1) != 0]
+    if not dec.empty:
+        extra.append({
+            "fuente": "nota", "segmento": "Decimales en 'Viajero'",
+            "fecha_min": dec["fecha"].min().date(), "fecha_max": dec["fecha"].max().date(),
+            "detalle": f"{len(dec):,} filas con decimales: son estimaciones expandidas de encuesta, "
+            "no conteos exactos. Se redondea solo al mostrar.",
+        })
+    extra.append({
+        "fuente": "nota", "segmento": "Cobertura parcial 2026 (migración)",
+        "fecha_min": pd.Timestamp("2026-01-01").date(), "fecha_max": mig["fecha"].max().date(),
+        "detalle": "2026 cubre solo enero-junio: no comparar totales anuales de 2026.",
+    })
+    extra.append({
+        "fuente": "nota", "segmento": "Quiebre metodológico 2022→2023 (migración)",
+        "fecha_min": pd.Timestamp("2023-01-01").date(), "fecha_max": mig["fecha"].max().date(),
+        "detalle": "Desde 2023 el sistema depurado excluye compradores fronterizos frecuentes; "
+        "los niveles no son perfectamente comparables con 2022 hacia atrás.",
+    })
+    extra.append({
+        "fuente": "nota", "segmento": "Capacidad instalada de alojamiento",
+        "detalle": "Ninguna fuente trae establecimientos, habitaciones ni plazas cama: "
+        "no se estiman (se recomienda incorporarlas).",
+    })
+    out = pd.concat([pd.DataFrame(filas), pd.DataFrame(extra)], ignore_index=True)
+    out[["huecos_visitantes", "detalle"]] = out[["huecos_visitantes", "detalle"]].fillna("")
+    return out

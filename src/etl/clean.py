@@ -78,6 +78,20 @@ def clean_occupancy(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def fix_mojibake(valor):
+    """Corrige texto UTF-8 leído como latin-1 ('AsunciÃ³n' -> 'Asunción').
+
+    Solo actúa si el texto contiene la marca típica ('Ã' o 'Â'); si la
+    recodificación falla, devuelve el valor original.
+    """
+    if not isinstance(valor, str) or ("Ã" not in valor and "Â" not in valor):
+        return valor
+    try:
+        return valor.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return valor
+
+
 def clean_survey(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza la BD complementaria (encuesta de turismo).
 
@@ -93,7 +107,7 @@ def clean_survey(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df["validacion"].notna()].copy()
 
     for col in _SURVEY_TEXT:
-        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].astype(str).str.strip().map(fix_mojibake)
 
     df["subdestino"] = df["destino"].apply(normalize_subdestino)
     df["es_izabal"] = df["nuevo_destino"].eq(DESTINATION_REGION)

@@ -63,6 +63,18 @@ SURVEY_BORDER_MAP = {
 # las 11 fronteras mapeadas como aproximación (el factor r_m absorbe la escala).
 ISABAL_FEEDER_BORDERS: list[str] | None = None
 
+# Ventana coincidente del Módulo 3 (afluencia vs ocupación). Ver PLAN §8 (C).
+VENTANA_COINCIDENTE = ("2025-09-01", "2025-12-01")
+
+# Nacionalidad de la encuesta -> 'País' de la base de migración (para enlazar
+# la selección de mercado entre ambas fuentes). Solo los que difieren de nombre;
+# los demás se buscan tal cual.
+SURVEY_NATIONALITY_MAP = {
+    "EE. UU.": "Estados Unidos de América",
+    "Reino Unido": "Reino Unido de Gran Bretaña e Irlanda del Norte",
+    "Rusia": "Federación de Rusia",
+}
+
 DESTINATION_DEPT = "Izabal"
 DESTINATION_REGION = "Izabal/Caribe"  # etiqueta usada en la BD complementaria
 
