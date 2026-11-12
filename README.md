@@ -14,13 +14,15 @@ completo en [`docs/PLAN.md`](docs/PLAN.md).
 
 | Módulo | Responsable | Estado |
 |---|---|---|
-| 1. Monitor de Demanda y Mercados Emisores | _por asignar_ | ✅ En el dashboard |
-| 2. Dinámica Temporal, Eventos y Pronóstico | _por asignar_ | ⚠️ Pronóstico listo; falta exponerlo en la página |
-| 3. Oferta Hotelera y Desagregación Territorial | _por asignar_ | ✅ En el dashboard |
-| 4. Conectividad Fluvial y Embudo de Transferencia | _por asignar_ | ✅ En el dashboard |
+| 1. Monitor de Demanda y Mercados Emisores | Adrián Gonzales | ✅ En el dashboard |
+| 2. Dinámica Temporal, Eventos y Pronóstico | José Anton | ✅ En el dashboard |
+| 3. Oferta Hotelera y Desagregación Territorial | Gadiel Ocaña | ✅ En el dashboard |
+| 4. Conectividad Fluvial y Embudo de Transferencia | José Ordoñez | ✅ En el dashboard |
 
 > 📍 **Plan de trabajo y estado de avance:** [`docs/PLAN.md`](docs/PLAN.md)
-> 📄 **Memoria técnica (en construcción):** [`docs/memoria_tecnica.md`](docs/memoria_tecnica.md)
+> 📄 **Memoria técnica:** [`docs/memoria_tecnica.md`](docs/memoria_tecnica.md)
+> 📇 **Catálogo de indicadores:** [`docs/catalogo_indicadores.md`](docs/catalogo_indicadores.md)
+> 🎨 **Paleta y teoría del color:** [`docs/paleta_y_diseno.md`](docs/paleta_y_diseno.md)
 
 ---
 
@@ -74,12 +76,15 @@ Proyecto3-DS/
 │   ├── pages/                # 4 módulos (uno por integrante)
 │   ├── components/           # theme.py, charts.py, kpis.py, data.py
 │   └── assets/style.css
-├── notebooks/                # análisis exploratorio (01, 02, 03)
+├── notebooks/                # análisis exploratorio (01 calidad, 02 pronóstico,
+│                             # 03 embudo, 04 ventana coincidente)
 ├── docs/
-│   ├── PLAN.md               # plan maestro y estado de avance
+│   ├── PLAN.md                     # plan maestro y estado de avance
 │   ├── asignacion_modulos.md
-│   └── memoria_tecnica.md    # entrega formal (en construcción)
-├── tests/                    # 85 pruebas
+│   ├── memoria_tecnica.md          # entrega formal
+│   ├── catalogo_indicadores.md     # ficha técnica (8 campos) de cada indicador
+│   └── paleta_y_diseno.md          # paleta validada + teoría del color
+├── tests/                    # 107 pruebas
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
@@ -167,7 +172,7 @@ automáticamente.
 pytest -q
 ```
 
-85 pruebas que validan el esquema de las fuentes, la definición de visitante, la
+107 pruebas que validan el esquema de las fuentes, la definición de visitante, la
 fórmula de estadía ponderada, las reglas estrictas (huecos conservados, no suma
 de subdestinos, ausencia ≠ cero), los límites del pronóstico (dentro de
 [0,1]), sus métricas de error, el mapeo 1:1 de fronteras, la tasa de

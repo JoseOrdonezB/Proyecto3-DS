@@ -159,8 +159,10 @@ with c1:
         "| Documento | Qué contiene |\n|---|---|\n"
         "| [`docs/PLAN.md`](docs/PLAN.md) | Plan maestro, hallazgos de datos y estado de avance |\n"
         "| [`docs/memoria_tecnica.md`](docs/memoria_tecnica.md) | Memoria técnica y recomendaciones (entrega formal) |\n"
+        "| [`docs/catalogo_indicadores.md`](docs/catalogo_indicadores.md) | Ficha técnica (8 campos) de cada indicador del tablero |\n"
+        "| [`docs/paleta_y_diseno.md`](docs/paleta_y_diseno.md) | Paleta validada y teoría del color aplicada |\n"
         "| [`docs/asignacion_modulos.md`](docs/asignacion_modulos.md) | Reparto de los 4 integrantes por módulo |\n"
-        "| `notebooks/` | Análisis exploratorio: calidad de datos, pronóstico y embudo |"
+        "| `notebooks/` | Análisis exploratorio: calidad de datos, pronóstico, embudo y ventana coincidente |"
     )
 
 with c2:

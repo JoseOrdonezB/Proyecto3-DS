@@ -5,11 +5,18 @@
 
 | Módulo | Responsable | Alcance | Entregables clave |
 |---|---|---|---|
-| **M1** Monitor de Demanda y Mercados Emisores | _completar nombre_ | KPIs (visitantes/mes, días-persona, estadía ponderada), segmentación turista/excursionista, top 10 nacionalidades | `survey_segment_tourist_excursionist`, `survey_days_person_monthly`, página 1 |
-| **M2** Dinámica Temporal, Eventos y Pronóstico | _completar nombre_ | Calendario de feriados con Lift, patrón semanal normalizado, sistema de pronóstico + backtest + métricas | `src/models/forecast.py`, `src/analysis/feriados.py`, página 2 |
-| **M3** Oferta Hotelera y Desagregación Territorial | _completar nombre_ | Ocupación 2023-2025, ventana coincidente con cruce real, subdestinos, documentación del gap de capacidad instalada | `occupancy_vs_affluence`, página 3, sección de limitaciones |
-| **M4** Conectividad Fluvial y Embudo de Transferencia | _completar nombre_ | Tasa de transferencia por frontera, flujo turístico vs comercial, conectividad fluvial, recomendaciones INGUAT | `src/analysis/embudo.py`, `survey_transfer_rate`, página 4 |
+| **M1** Monitor de Demanda y Mercados Emisores | Adrián Gonzales | KPIs (visitantes/mes, días-persona, estadía ponderada), segmentación turista/excursionista, top 10 nacionalidades | `survey_segment_tourist_excursionist`, `survey_days_person_monthly`, página 1 |
+| **M2** Dinámica Temporal, Eventos y Pronóstico | José Anton | Calendario de feriados con Lift, patrón semanal normalizado, sistema de pronóstico + backtest + métricas | `src/models/forecast.py`, `src/analysis/feriados.py`, página 2 |
+| **M3** Oferta Hotelera y Desagregación Territorial | Gadiel Ocaña | Ocupación 2023-2025, ventana coincidente con cruce real, subdestinos, documentación del gap de capacidad instalada | `occupancy_vs_affluence`, página 3, sección de limitaciones |
+| **M4** Conectividad Fluvial y Embudo de Transferencia | José Ordoñez | Tasa de transferencia por frontera, flujo turístico vs comercial, conectividad fluvial, recomendaciones INGUAT | `src/analysis/embudo.py`, `survey_transfer_rate`, página 4 |
 | **Transversal** | todos | Paleta y teoría del color, memoria técnica, notebooks | `docs/`, `notebooks/` |
+
+> **Nota de trazabilidad (2026-11-12):** la asignación de M1/M3 se infiere del historial de
+> git (un commit conjunto de Adrián cubre "módulos 1 y 3"); si la autoría real fue al
+> revés (M1 = Gadiel, M3 = Adrián) o hubo otro reparto interno, corregir esta tabla — no
+> hay un commit separado por cada uno de los dos módulos que lo confirme de forma
+> inequívoca. M2 y M4 sí están confirmados por mensajes de commit explícitos
+> ("fundaciones, pronóstico" → José Anton; "modulo 4 (reto del grupo)" → José Ordoñez).
 
 ## Dependencias
 - **M2** es el camino crítico (el pronóstico bloquea la página 2): arranca primero.

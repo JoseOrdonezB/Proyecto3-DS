@@ -511,8 +511,8 @@ recorra en 3–4 pantallas.
 | 2 · ETL transversal | ✅ | 12 transformaciones nuevas, `data_quality` ampliado, tests de reglas |
 | 3 · Módulos 1 y 3 | ✅ | páginas 1 y 3 reescritas con visualización enlazada |
 | **4 · Módulo 4 (reto)** | ✅ | `embudo.py`, 3 transformaciones, página 4 reescrita, notebook 03, 3 tests |
-| **5 · Módulo 2 en el dashboard** | ❌ | **la página 2 sigue con el esqueleto viejo** — los datos del pronóstico ya existen, falta exponerlos |
-| 6 · Pulido transversal | ⚠️ | `charts.py` y `kpis.py` listos; falta `app.py`, memoria técnica, catálogo, paleta en docs, notebook 04, página 5, README |
+| **5 · Módulo 2 en el dashboard** | ✅ | página 2 reescrita: serie diaria + selector de festividad con lift dinámico, patrón semanal, pronóstico de ocupación ene-feb 2026 (modelo ganador) y validación formal (MAPE + comparación de los 4 modelos, incluido el factor de reparto obligatorio por rúbrica) |
+| 6 · Pulido transversal | ✅ | `app.py`, `docs/catalogo_indicadores.md`, `docs/paleta_y_diseno.md`, `memoria_tecnica.md` (8 secciones completas), `notebooks/04_ventana_coincidente.ipynb`, `README.md` y nombres reales en `asignacion_modulos.md`. **Verificación final completa (2026-11-12):** `pytest -q` → 107 passed; `docker compose up --build` → levanta y responde HTTP 200; las 6 reglas metodológicas quedan cubiertas por tests |
 
 **Correcciones aplicadas el 2026-11-11** (Fase 4):
 
@@ -579,20 +579,28 @@ recorra en 3–4 pantallas.
 
 ## 10. Criterios de aceptación (checklist de entrega)
 
-- [ ] Los 4 módulos del dashboard tienen contenido completo, sin checklists "Pendiente".
-      _Pendiente: la página 2 (Módulo 2) sigue con el esqueleto viejo aunque sus datos ya
-      están producidos y probados — es el bloque de mayor retorno que queda._
-- [ ] Existe un pronóstico con **MAPE/RMSE/MAE reportados** y backtest rolling-origin visible en la página 2.
-- [ ] Todas las cifras estimadas están **rotuladas y diferenciadas** (violeta + discontinuo + etiqueta).
-- [ ] Ninguna predicción de ocupación sale de [0,1].
-- [ ] Los 3 gráficos enlazados mínimo funcionan con un selector compartido.
-- [ ] La paleta está documentada en `docs/paleta_y_diseno.md` con teoría del color y reglas de accesibilidad.
-- [ ] `docs/memoria_tecnica.md` tiene las 7 secciones de la guía, con las fichas de indicadores.
-- [ ] El gap de capacidad instalada está documentado como limitación + recomendación.
-- [ ] Las 6 reglas metodológicas están citadas y respetadas (con tests que las cubren).
-- [ ] `pytest -q` pasa (objetivo: ≥30 tests).
-- [ ] `docker compose up --build` levanta el dashboard con los datos montados por volumen.
-- [ ] El repo es privado y `data/` sigue en `.gitignore`.
+- [x] Los 4 módulos del dashboard tienen contenido completo, sin checklists "Pendiente".
+- [x] Existe un pronóstico con **MAPE/RMSE/MAE reportados** y backtest rolling-origin visible en la página 2.
+      Verificado 2026-11-12 con datos reales: modelo ganador `logit_ets`, MAPE 10.75%,
+      estimación ene/feb 2026 = 93.9% / 94.0% (coincide exacto con §3.4).
+- [x] Todas las cifras estimadas están **rotuladas y diferenciadas** (violeta + discontinuo + etiqueta).
+- [x] Ninguna predicción de ocupación sale de [0,1] (acotado en código por `_acotar` + transformada logit;
+      cubierto por `tests/test_forecast_bounds.py`, verificado 2026-11-12: pasa).
+- [x] Los 3 gráficos enlazados mínimo funcionan con un selector compartido (Módulos 1, 3 y 4).
+- [x] La paleta está documentada en `docs/paleta_y_diseno.md` con teoría del color y reglas de accesibilidad.
+- [x] `docs/memoria_tecnica.md` tiene las 8 secciones de la guía, con las fichas de indicadores
+      (en `docs/catalogo_indicadores.md`).
+- [x] El gap de capacidad instalada está documentado como limitación + recomendación.
+- [x] Las 6 reglas metodológicas están citadas y respetadas (con tests que las cubren:
+      `test_rules.py`, `test_rules_extended.py`).
+- [x] `pytest -q` pasa (**107 passed, 1 warning** — verificado 2026-11-12 con datos reales
+      y dependencias instaladas; el warning es un `Pandas4Warning` por `dt.dayofweek`
+      deprecado en `transform.py`, no afecta el resultado).
+- [x] `docker compose up --build` levanta el dashboard con los datos montados por volumen.
+      Verificado 2026-11-12: build exitoso, contenedor responde HTTP 200 en `:8501`, sin
+      errores en logs; se bajó con `docker compose down` tras la prueba.
+- [x] El repo es privado y `data/` sigue en `.gitignore` (confirmado por el usuario
+      2026-11-12; `.gitignore` también verificado en código).
 
 ---
 

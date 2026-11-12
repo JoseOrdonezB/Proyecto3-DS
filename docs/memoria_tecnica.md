@@ -3,10 +3,10 @@
 ### Río Dulce y Livingston, Izabal · Reto: Conectividad Fluvial y Embudo de Transferencia
 
 **Curso:** CC3084 Data Science · Universidad del Valle de Guatemala · Semestre II 2026
-**Versión:** 0.1 — 2026-11-11
-**Estado:** en construcción. La §4 (Reto Analítico Específico) está redactada en
-su versión final; el resto de secciones tienen la estructura exigida por la guía
-y el contenido pendiente de cada responsable de módulo.
+**Versión:** 0.3 — 2026-11-12
+**Estado:** redacción completa de las 8 secciones exigidas por la guía. Verificado
+contra una corrida real de `python -m src.etl.pipeline` y `pytest -q` (107 passed) el
+2026-11-12; `docker compose up --build` también probado y funcional.
 
 > **Uso:** cada integrante del grupo redacta la sección de su módulo y el
 > responsable de cada bloque la completa. Las cifras de esta memoria **deben**
@@ -29,11 +29,47 @@ y el contenido pendiente de cada responsable de módulo.
 
 ## 1. Resumen ejecutivo
 
-> **Pendiente de redacción final (responsable: coordinación del grupo).**
-> Estructura recomendada: 3–4 hallazgos cuantitativos de mayor impacto para el
-> INGUAT + resumen de los pronósticos.
+El Grupo 5 construyó un observatorio de inteligencia turística para Río Dulce y
+Livingston (Izabal), cruzando tres fuentes institucionales de naturaleza distinta
+—migración oficial (absoluta), ocupación hotelera (absoluta) y una encuesta de turismo
+(muestral, sin factor de expansión)— para resolver el reto asignado: **Conectividad
+Fluvial y Embudo de Transferencia**.
 
-Hallazgos cuantitativos ya disponibles para el resumen (ver §4):
+El hallazgo que encuadra todo el análisis es que el corredor marítimo de Izabal **no
+tiene un embudo medible**: en sus tres fronteras, los visitantes (2009–2016) y el
+tránsito (2023–2026) nunca coinciden en un mismo mes. El embudo sí se mide en las 9
+fronteras terrestres que alimentan el destino, y ahí dos de ellas concentran la mayor
+parte del flujo. La demanda de traslado por el corredor, además, resultó ser
+**estructural y no estacional**: no se concentra en temporada alta, así que la
+capacidad de transporte debe planificarse todo el año.
+
+En paralelo, se resolvió el pronóstico obligatorio de ocupación hotelera de Izabal para
+enero–febrero de 2026 con cuatro modelos comparados por backtest rolling-origin: el
+ganador (Logit-ETS, transformada logit para garantizar el rango [0,1]) reporta un
+**MAPE de 10.75 %**, por debajo del método que la guía exige textualmente (perfil
+estacional + factor de reparto de la migración, MAPE 11.27 %) y del baseline naive
+(13.84 %). La encuesta —muestral y mucho más ruidosa— se pronostica aparte, con un error
+más alto (MAPE ≈ 56 %) que se explica por el tamaño de muestra mensual, no por un fallo
+del método.
+
+**Los 3–4 hallazgos cuantitativos de mayor impacto para el INGUAT:**
+
+1. El corredor marítimo no admite una tasa de transferencia calculable con la fuente
+   actual (0 meses de solape visitante-tránsito en sus 3 fronteras); el dato que haría
+   falta no existe hoy.
+2. Dos fronteras terrestres (El Florido y La Ermita) concentran el **80 %** de la
+   muestra con destino Izabal/Caribe: son el punto de mayor apalancamiento para
+   cualquier intervención de promoción o señalización.
+3. El tránsito del corredor tiene un coeficiente de variación de solo **0.22**: es una
+   demanda permanente, no estacional, y debe planificarse como tal.
+4. El pronóstico de ocupación 2026 queda acotado por construcción a [0,1] y reporta
+   error formal (MAPE 10.75 %), cumpliendo la exigencia de rigor analítico de la guía.
+
+Las limitaciones de mayor peso —ausencia de inventario hotelero, discontinuidad de la
+vía marítima desde 2017, y la naturaleza muestral de la encuesta— se documentan en
+detalle en §5, junto con las recomendaciones accionables para INGUAT en §6.
+
+Hallazgos cuantitativos que respaldan este resumen (ver §4):
 
 | # | Hallazgo | Cifra |
 |---|---|---|
@@ -109,7 +145,7 @@ Proyecto3-DS/
 │   └── assets/style.css
 ├── notebooks/                # 01 calidad, 02 pronóstico, 03 embudo
 ├── docs/                     # PLAN.md, memoria, catálogo, paleta
-└── tests/                    # 85 pruebas
+└── tests/                    # 107 pruebas
 ```
 
 ### 2.4 Pipeline ETL
@@ -130,21 +166,20 @@ load → clean → transform → forecast → save
 
 ## 3. Catálogo formal de indicadores y métricas
 
-> **Pendiente.** Cada indicador del dashboard debe tener su ficha técnica con
-> los 8 campos de la guía. Estructura de la ficha:
+El catálogo completo vive en [`docs/catalogo_indicadores.md`](catalogo_indicadores.md):
+23 fichas técnicas (los 8 campos exigidos por la guía — nombre, definición de negocio,
+fórmula formal, implementación en código, nivel de agregación, unidad de medida,
+fuentes de origen y reglas de exclusión), agrupadas por módulo:
 
-| Campo | Contenido |
+| Módulo | Indicadores documentados |
 |---|---|
-| 1. Nombre del Indicador | |
-| 2. Definición de Negocio | |
-| 3. Fórmula Matemática Formal | |
-| 4. Implementación en Código | |
-| 5. Nivel de Agregación y Granularidad | |
-| 6. Unidad de Medida | |
-| 7. Fuentes de Datos de Origen | |
-| 8. Reglas de Negocio y Exclusiones | |
+| M1 — Demanda y Mercados Emisores | 6: visitantes totales, proporción de pernocta, estadía media ponderada, días-persona, top 10 mercados emisores, migración de fronteras alimentadoras |
+| M2 — Dinámica Temporal y Pronóstico | 5: serie diaria, patrón semanal normalizado, lift de festividades, pronóstico de ocupación, métricas de error (MAPE/RMSE/MAE) |
+| M3 — Oferta Hotelera | 4: índice de ocupación, comparación interdepartamental, cruce ocupación-afluencia (correlación), participación de subdestinos |
+| M4 — Conectividad Fluvial (el reto) | 8: meses de solape, tasa de transferencia, IC de Wilson, peso por frontera, nodo principal, modo de transporte, CV del tránsito, participación del corredor |
 
-**Fichas ya redactadas (Módulo 4):** en §4.5 de este documento.
+Las fichas del Módulo 4, redactadas primero por ser el reto del grupo, también se
+presentan en prosa (con la evidencia que las sustenta) en la §4.7 de este documento.
 
 ---
 
@@ -325,9 +360,6 @@ el catálogo a INGUAT es una de las recomendaciones (§6).
 
 ## 5. Supuestos, limitaciones y calidad de las fuentes
 
-> **Pendiente de completar** con las secciones de los módulos 1, 2 y 3.
-> Contenido ya verificado que debe quedar aquí:
-
 ### 5.1 Discontinuidades de cobertura (medidas)
 
 | # | Limitación | Evidencia | Tratamiento |
@@ -344,6 +376,9 @@ el catálogo a INGUAT es una de las recomendaciones (§6).
 | L10 | Los códigos de `otros_destinos` no traen diccionario | 24,583 itinerarios multi-parada sin código legible | Se reporta co-ocurrencia, no se nombran |
 | L11 | El mes 2025-01 no tiene ninguna encuesta de Izabal | 0 filas | Se imputa con el modelo ganador y se rotula "Estimación" |
 | L12 | Los márgenes de error de la encuesta muestral son grandes | IC de Wilson por frontera | Se publican siempre junto a la tasa |
+| L13 | Los nacionales (Guatemala) incorporan un factor de expansión distinto al de los extranjeros en la base de migración | Hoja `Notas` de la base oficial | Se reportan siempre en un ranking aparte (Módulo 1), nunca mezclados con el top de mercados extranjeros |
+| L14 | **Diferencia de universos: hotelería formal vs. plataformas digitales.** El índice de ocupación de INGUAT cubre establecimientos formales registrados; no hay evidencia de que incluya oferta de plataformas como Airbnb | Las 4 columnas del CSV no distinguen tipo de establecimiento | No se estima la oferta informal; se documenta como universo no cubierto y se recomienda a INGUAT precisarlo |
+| L15 | La guía advierte, para otras fuentes del curso, que los datos de 2026 pueden ser parciales (solo Q1) y repetir el valor del año anterior en parte de las combinaciones | **Verificado 2026-11-12** contra el archivo real: `indice_ocupacion_mensual_2023_2025_1.csv` tiene exactamente 792 filas (22 deptos × 36 meses) y **0 filas de 2026**. La advertencia de la guía no aplica a esta fuente para este grupo | El objetivo de imputación del Módulo 2 (ene-feb 2026) es un hueco real, no parcial; no requiere ajuste |
 
 ### 5.2 Tratamiento del problema de la capacidad instalada
 
@@ -437,7 +472,7 @@ assert perfil.loc[perfil["es_destino_maritimo"], "meses_solape"].sum() == 0
 ### 7.5 Pruebas
 
 ```bash
-pytest -q     # 85 pruebas
+pytest -q     # 107 pruebas
 ```
 
 Cubren: esquema de las fuentes, definición de visitante, fórmula de estadía
@@ -449,23 +484,64 @@ de error, mapeo de fronteras, tasa de transferencia, huecos del corredor y una
 
 ## 8. Investigación: qué es un Observatorio de Turismo Sostenible
 
-> **Pendiente de redacción** (responsable: coordinación). Estructura sugerida:
->
-> 1. **Definición.** Un Observatorio de Turismo es un sistema de inteligencia
->    contínua que recolecta, procesa, modela y visualiza datos heterogéneos
->    para sostener decisiones de gobernanza. No es un reporte estático ni un
->    tablero de ventas.
-> 2. **Marcos de referencia.**
->    - **INSTO** (International Network of Sustainable Tourism Observatories), red
->      de la ONU Turismo (OMT): marco de referencia para observadores de destino
->      sostenible.
->    - **SEGITTUR** (Sistema Español de Tourist Information and Statistics) y sus
->      *Destinos Turísticos Intelligentes (DTI)*: estándares de datos y de
->      indicadores para destinos inteligentes.
-> 3. **Las seis dimensiones** del observatorio (demanda, oferta, movilidad,
->    sostenibilidad, experiencia y capacidad predictiva) y cómo este proyecto
->    cubre cada una con sus cuatro módulos.
-> 4. **Referencias consultables** (enlace y fecha de consulta).
+### 8.1 Definición
+
+Un Observatorio de Turismo (o Sistema de Inteligencia Turística) es una herramienta de
+**gobernanza y conocimiento continuo**: recolecta, procesa, modela y visualiza datos
+heterogéneos de un destino para que gestores públicos y privados decidan con evidencia,
+no con intuición. No es un reporte estático ni un tablero corporativo de ventas — la
+diferencia es el ciclo: un observatorio se actualiza y se vuelve a consultar, mes tras
+mes, mientras que un reporte se entrega una vez y queda fijo.
+
+### 8.2 Marcos de referencia
+
+**INSTO** (*International Network of Sustainable Tourism Observatories*), la red de
+observatorios de turismo sostenible de ONU Turismo (antigua OMT), fue creada en 2004
+para apoyar el monitoreo sistemático, oportuno y regular del desempeño y el impacto del
+turismo a nivel de destino. Sus miembros se comprometen a medir el impacto del turismo
+en **11 áreas obligatorias** que cubren las dimensiones económica, ambiental y
+socioeconómica — exactamente el espíritu detrás de las "seis dimensiones" que esta guía
+retoma (demanda, oferta, movilidad, sostenibilidad, experiencia, capacidad predictiva).
+
+**SEGITTUR** (Sociedad Mercantil Estatal para la Gestión de la Innovación y las
+Tecnologías Turísticas, España) impulsa el modelo de **Destinos Turísticos Inteligentes
+(DTI)** por encargo de la Secretaría de Estado de Turismo española. El modelo DTI se
+basa en una metodología de **97 requisitos y 261 indicadores** distribuidos en cinco
+ejes — gobernanza, innovación, tecnología, sostenibilidad y accesibilidad — pensada para
+diagnosticar el estado de un destino y priorizar un plan de acción. El principio que
+este proyecto adopta de SEGITTUR no es el volumen de indicadores (fuera de alcance para
+un curso), sino la idea de **ficha técnica estandarizada por indicador** (ver
+`docs/catalogo_indicadores.md`): cada métrica debe ser trazable a una fuente, una
+fórmula y una regla de negocio, no a un número suelto en un gráfico.
+
+### 8.3 Las seis dimensiones del observatorio y los cuatro módulos del proyecto
+
+| Dimensión (INSTO / guía del curso) | Cómo la cubre este proyecto |
+|---|---|
+| 1. Demanda turística y mercados emisores | **Módulo 1**: visitantes, estadía ponderada, segmentación turista/excursionista, top 10 mercados |
+| 2. Capacidad hotelera y oferta de alojamiento | **Módulo 3**: índice de ocupación, ventana coincidente con afluencia, subdestinos; se documenta como gap el inventario de establecimientos que ninguna fuente trae |
+| 3. Movilidad y presión sobre el territorio en fechas críticas | **Módulo 2**: patrón semanal, lift de festividades, pronóstico de ocupación para 2026; **Módulo 4**: conectividad fluvial y cuellos de botella del corredor |
+| 4. Sostenibilidad y percepción ciudadana comunitaria | Fuera del alcance de las 3 fuentes disponibles (ninguna mide percepción ciudadana ni huella ambiental); se señala como recomendación de datos a incorporar (§6) |
+| 5. Experiencia y calidad de los servicios | Parcialmente cubierta por el hospedaje y el modo de transporte declarados en la encuesta (Módulos 1 y 4); no hay medición directa de satisfacción |
+| 6. Capacidad analítica predictiva | **Módulo 2**: 4 modelos de pronóstico con backtest rolling-origin y métricas de error formales (MAPE/RMSE/MAE) |
+
+Las dimensiones 4 y 5 quedan parcialmente abiertas porque ninguna de las tres fuentes
+institucionales mide percepción, satisfacción o impacto ambiental directamente — es la
+misma limitación de origen que obliga a documentar el gap de capacidad instalada en el
+Módulo 3 (§5.2): el observatorio reporta lo que las fuentes permiten medir, y señala
+explícitamente lo que no.
+
+### 8.4 Referencias consultables
+
+- UN Tourism (ONU Turismo). *International Network of Sustainable Tourism Observatories
+  (INSTO)*.
+  <http://www.unwto.org/sustainable-development/unwto-international-network-of-sustainable-tourism-observatories>
+  (consultado 2026-11-12).
+- UN Tourism. *INSTO — sitio de la red*. <http://insto.unwto.org/> (consultado 2026-11-12).
+- SEGITTUR. *Los Sistemas de Inteligencia Turística en el ámbito de la Red de Destinos
+  Turísticos Inteligentes*.
+  <https://www.segittur.es/wp-content/uploads/2024/03/Informe-SIT-en-Red-DTI.pdf>
+  (consultado 2026-11-12).
 
 ---
 
